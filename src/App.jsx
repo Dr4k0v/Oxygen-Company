@@ -443,7 +443,7 @@ function AuthModal({ mode, onModeChange, onClose, onSubmit, error, busy, onCreat
   );
 }
 
-function ProfilePage({ user, claims, events, tickets = [], isOwnProfile, onAvatarUpload, onChangePassword, onCreateTicket = async () => false }) {
+function ProfilePage({ user, claims, events, tickets = [], isOwnProfile, onAvatarUpload, onChangePassword, onCreateTicket = async () => false, onSendTicketMessage = async () => false }) {
   const fileRef = useRef(null);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -459,8 +459,12 @@ function ProfilePage({ user, claims, events, tickets = [], isOwnProfile, onAvata
     .filter(([key]) => key.toLowerCase() === username.toLowerCase())
     .map(([, claim]) => claim);
   const spinEvents = events.filter((event) => event.type === 'spin' && event.username?.toLowerCase() === username.toLowerCase());
-  const prizeMap = new Map([...userClaims, ...spinEvents].map((prize) => [`${prize.at}-${prize.rewardId}`, prize]));
-  const prizes = [...prizeMap.values()].sort((a, b) => new Date(b.at) - new Date(a.at));
+  const prizes = [...spinEvents];
+  userClaims.forEach((claim) => {
+    const duplicate = prizes.some((prize) => prize.rewardId === claim.rewardId && Math.abs(new Date(prize.at) - new Date(claim.at)) < 10_000);
+    if (!duplicate) prizes.push(claim);
+  });
+  prizes.sort((a, b) => new Date(b.at) - new Date(a.at));
   const userId = user.uid ? `#${user.uid}` : 'Local demo';
   return (
     <section className="profile-page page-enter" aria-labelledby="profile-title">
@@ -469,9 +473,9 @@ function ProfilePage({ user, claims, events, tickets = [], isOwnProfile, onAvata
         <div><p className="eyebrow">OXYGEN PROFILE</p><h1 id="profile-title">{username}</h1><span className="profile-role">{user.role || 'user'}</span></div>
       </div>
       <div className="profile-stats"><div><span>Account UID</span><code>{userId}</code></div><div><span>Registered</span><strong>{user.createdAt ? new Date(user.createdAt).toLocaleString() : 'Legacy account'}</strong></div><div><span>Prizes</span><strong>{prizes.length}</strong></div><div><span>Created by</span><strong>{user.createdBy || 'Self registration'}</strong></div></div>
-      <section className="profile-prizes"><div className="profile-section-heading"><p className="product-category">PRIZE HISTORY</p><h2>All rewards</h2></div>{prizes.length === 0 ? <p className="empty-state">No prizes yet.</p> : <div className="prize-list">{prizes.map((prize, index) => <article key={`${prize.at}-${index}`}><div><strong>{prize.rewardLabel || prize.rewardId}</strong><span>{new Date(prize.at).toLocaleString()}</span></div><code>{prize.rewardId}</code>{prize.promoCode && <b>{prize.promoCode}</b>}</article>)}</div>}</section>
+      <section className="profile-prizes"><div className="profile-section-heading"><p className="product-category">PRIZE HISTORY</p><h2>All rewards</h2></div>{prizes.length === 0 ? <p className="empty-state">No prizes yet.</p> : <div className="prize-list">{prizes.map((prize, index) => <article key={`${prize.at}-${index}`}><div><strong>{prize.rewardLabel || prize.rewardId}</strong><span>{new Date(prize.at).toLocaleString()}</span></div><code>{prize.rewardId}</code>{prize.promoCode && <b>************</b>}</article>)}</div>}</section>
       {isOwnProfile && <form className="password-panel" onSubmit={async (event) => { event.preventDefault(); if (newPassword !== confirmPassword) return onChangePassword(null, 'New passwords do not match.'); setPasswordBusy(true); const changed = await onChangePassword({ currentPassword, newPassword }); setPasswordBusy(false); if (changed) { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); } }}><div className="profile-section-heading"><p className="product-category">SECURITY</p><h2>Change password</h2></div><div className="password-fields"><input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Current password" autoComplete="current-password" minLength={6} required /><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="New password" autoComplete="new-password" minLength={6} required /><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Repeat new password" autoComplete="new-password" minLength={6} required /><button className="admin-button" type="submit" disabled={passwordBusy}>{passwordBusy ? 'Saving...' : 'Update password'}</button></div></form>}
-      {isOwnProfile && <section className="ticket-panel"><div className="profile-section-heading"><p className="product-category">SUPPORT</p><h2>Tickets</h2></div><form className="ticket-form" onSubmit={async (event) => { event.preventDefault(); setTicketBusy(true); const created = await onCreateTicket(ticketSubject, ticketMessage, ticketAttachment); setTicketBusy(false); if (created) { setTicketSubject(''); setTicketMessage(''); setTicketAttachment(null); } }}><input value={ticketSubject} onChange={(event) => setTicketSubject(event.target.value)} placeholder="Subject" maxLength={100} required /><textarea value={ticketMessage} onChange={(event) => setTicketMessage(event.target.value)} placeholder="Describe your issue" maxLength={3000} rows={4} required /><label className="file-picker"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; try { setTicketAttachment(await prepareScreenshot(file)); } catch { setTicketAttachment(null); } event.target.value = ''; }} />{ticketAttachment ? 'Screenshot attached' : 'Attach screenshot'}</label><button className="admin-button" type="submit" disabled={ticketBusy}>{ticketBusy ? 'Sending...' : 'Create ticket'}</button></form><div className="ticket-list">{tickets.length === 0 ? <p className="empty-state">No tickets yet.</p> : tickets.filter((ticket) => ticket.username?.toLowerCase() === username.toLowerCase()).map((ticket) => <article className="ticket-row" key={ticket.id}><div><strong>#{ticket.id} · {ticket.subject}</strong><span>Message: {new Date(ticket.createdAt).toLocaleString()} · {ticket.status.replace('_', ' ')}</span><p>{ticket.message}</p>{ticket.attachmentUrl && <a href={ticket.attachmentUrl} target="_blank" rel="noreferrer">Open screenshot</a>}{ticket.adminReply && <em>Reply ({new Date(ticket.repliedAt || ticket.updatedAt).toLocaleString()}): {ticket.adminReply}</em>}</div></article>)}</div></section>}
+      {isOwnProfile && <section className="ticket-panel"><div className="profile-section-heading"><p className="product-category">SUPPORT</p><h2>Tickets</h2></div><form className="ticket-form" onSubmit={async (event) => { event.preventDefault(); setTicketBusy(true); const created = await onCreateTicket(ticketSubject, ticketMessage, ticketAttachment); setTicketBusy(false); if (created) { setTicketSubject(''); setTicketMessage(''); setTicketAttachment(null); } }}><input value={ticketSubject} onChange={(event) => setTicketSubject(event.target.value)} placeholder="Subject" maxLength={100} required /><textarea value={ticketMessage} onChange={(event) => setTicketMessage(event.target.value)} placeholder="Describe your issue" maxLength={3000} rows={4} required /><label className="file-picker"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; try { setTicketAttachment(await prepareScreenshot(file)); } catch { setTicketAttachment(null); } event.target.value = ''; }} />{ticketAttachment ? 'Screenshot attached' : 'Attach screenshot'}</label><button className="admin-button" type="submit" disabled={ticketBusy}>{ticketBusy ? 'Sending...' : 'Create ticket'}</button></form><div className="ticket-list">{tickets.filter((ticket) => ticket.username?.toLowerCase() === username.toLowerCase()).length === 0 ? <p className="empty-state">No tickets yet.</p> : tickets.filter((ticket) => ticket.username?.toLowerCase() === username.toLowerCase()).map((ticket) => <TicketConversation key={ticket.id} ticket={ticket} onSend={onSendTicketMessage} />)}</div></section>}
     </section>
   );
 }
@@ -492,15 +496,22 @@ function RoulettePage({ rotation, spinning, claimed, result, onSpin, settings, r
   );
 }
 
-function AdminTicket({ ticket, onSave }) {
-  const [status, setStatus] = useState(ticket.status);
-  const [reply, setReply] = useState(ticket.adminReply || '');
+function TicketConversation({ ticket, onSend }) {
+  const [message, setMessage] = useState('');
+  const [attachment, setAttachment] = useState(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setStatus(ticket.status); setReply(ticket.adminReply || ''); }, [ticket]);
-  return <article className="ticket-row"><div><strong>#{ticket.id} · {ticket.username} · {ticket.subject}</strong><span>Message: {new Date(ticket.createdAt).toLocaleString()} · {ticket.status.replace('_', ' ')}</span><p>{ticket.message}</p>{ticket.attachmentUrl && <a href={ticket.attachmentUrl} target="_blank" rel="noreferrer">Open screenshot</a>}{ticket.adminReply && <em>Reply ({new Date(ticket.repliedAt || ticket.updatedAt).toLocaleString()}): {ticket.adminReply}</em>}</div><form className="ticket-actions" onSubmit={async (event) => { event.preventDefault(); setBusy(true); await onSave(ticket, status, reply); setBusy(false); }}><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="open">open</option><option value="in_progress">in progress</option><option value="closed">closed</option></select><textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply" rows={3} maxLength={3000} /><button className="admin-button" type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save reply'}</button></form></article>;
+  const messages = ticket.messages?.length ? ticket.messages : [{ id: `legacy-${ticket.id}`, username: ticket.username, role: 'user', message: ticket.message, attachmentUrl: ticket.attachmentUrl, createdAt: ticket.createdAt }];
+  return <article className="ticket-chat"><header><div><strong>#{ticket.id} · {ticket.subject}</strong><span>{ticket.status.replace('_', ' ')}</span></div><time>{new Date(ticket.updatedAt || ticket.createdAt).toLocaleString()}</time></header><div className="ticket-messages">{messages.map((item) => <div className={`ticket-message ${item.role === 'admin' || item.role === 'owner' ? 'is-staff' : ''}`} key={item.id}><div><b>{item.username}</b><time>{new Date(item.createdAt).toLocaleString()}</time></div>{item.message && <p>{item.message}</p>}{item.attachmentUrl && <a href={item.attachmentUrl} target="_blank" rel="noreferrer"><img src={item.attachmentUrl} alt="Ticket screenshot" /></a>}</div>)}</div><form className="ticket-reply" onSubmit={async (event) => { event.preventDefault(); if (!message.trim() && !attachment) return; setBusy(true); const sent = await onSend(ticket, message, attachment); setBusy(false); if (sent) { setMessage(''); setAttachment(null); } }}><textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Write a message" rows={3} maxLength={3000} /><label className="file-picker"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; try { setAttachment(await prepareScreenshot(file)); } catch { setAttachment(null); } event.target.value = ''; }} />{attachment ? 'Screenshot attached' : 'Attach screenshot'}</label><button className="admin-button" type="submit" disabled={busy}>{busy ? 'Sending...' : 'Send'}</button></form></article>;
 }
 
-function AdminPage({ canManageRoles, adminName, events, settings, rewards, tickets = [], onSaveSettings, onResetSettings, onExportAudit, onAddReward, generatedCodes, onGenerateCodes, users, promoStatuses, onTogglePromo, onChangeRole, onCreateAccount, onTicketStatus }) {
+function AdminTicket({ ticket, onSave, onSend }) {
+  const [status, setStatus] = useState(ticket.status);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setStatus(ticket.status); }, [ticket.status]);
+  return <div className="admin-ticket"><div className="ticket-status"><strong>{ticket.username}</strong><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="open">open</option><option value="in_progress">in progress</option><option value="closed">closed</option></select><button className="admin-button" type="button" disabled={busy || status === ticket.status} onClick={async () => { setBusy(true); await onSave(ticket, status); setBusy(false); }}>Save status</button></div><TicketConversation ticket={ticket} onSend={onSend} /></div>;
+}
+
+function AdminPage({ canManageRoles, adminName, events, settings, rewards, tickets = [], onSaveSettings, onResetSettings, onExportAudit, onAddReward, generatedCodes, onGenerateCodes, users, promoStatuses, onTogglePromo, onChangeRole, onChangeBan, onCreateAccount, onTicketStatus, onSendTicketMessage }) {
   const [newRewardLabel, setNewRewardLabel] = useState('');
   const [newRewardWeight, setNewRewardWeight] = useState('0.5');
   const [newAccountLogin, setNewAccountLogin] = useState('');
@@ -527,9 +538,9 @@ function AdminPage({ canManageRoles, adminName, events, settings, rewards, ticke
         <form className="add-reward-form" onSubmit={(event) => { event.preventDefault(); if (newRewardLabel.trim()) { onAddReward(newRewardLabel, newRewardWeight); setNewRewardLabel(''); setNewRewardWeight('0.5'); } }}><div className="editor-heading"><div><p className="product-category">PRIZE BUILDER</p><h3>Add a prize</h3></div><span className="owner-badge">owner only</span></div><div className="add-reward-fields"><input value={newRewardLabel} onChange={(event) => setNewRewardLabel(event.target.value)} placeholder="Prize name, e.g. Oxygen Pro 3d" maxLength={36} disabled={!canManageRoles} /><input type="number" value={newRewardWeight} onChange={(event) => setNewRewardWeight(event.target.value)} min="0" max="100" step="0.1" aria-label="Prize chance" disabled={!canManageRoles} /><button className="admin-button" type="submit" disabled={!canManageRoles}>Add prize</button></div></form>
         <div className="admin-subsection promo-generator"><div className="editor-heading"><div><p className="product-category">PROMO CODES</p><h3>Generate 10% codes</h3></div><button className="admin-button" type="button" onClick={() => onGenerateCodes(1)} disabled={!canManageRoles}>Generate code</button></div><div className="generated-code-list">{generatedCodes.length === 0 ? <p className="empty-state">No manual codes generated.</p> : generatedCodes.slice(0, 30).map((item) => <code key={item.code}>{item.code} · {item.status}</code>)}</div></div>
         <form className="admin-subsection create-account-form" onSubmit={async (event) => { event.preventDefault(); const created = await onCreateAccount(newAccountLogin, newAccountPassword, newAccountRole); if (created) { setNewAccountLogin(''); setNewAccountPassword(''); setNewAccountRole('user'); } }}><div className="editor-heading"><div><p className="product-category">ACCOUNT CONTROL</p><h3>Create account</h3></div><span className="owner-badge">owner only</span></div><div className="create-account-fields"><input value={newAccountLogin} onChange={(event) => setNewAccountLogin(event.target.value)} placeholder="Login" minLength={3} maxLength={32} required disabled={!canManageRoles} /><input type="password" value={newAccountPassword} onChange={(event) => setNewAccountPassword(event.target.value)} placeholder="Temporary password" minLength={6} required disabled={!canManageRoles} /><select value={newAccountRole} onChange={(event) => setNewAccountRole(event.target.value)} disabled={!canManageRoles}><option value="user">user</option><option value="admin">admin</option><option value="owner">owner</option></select><button className="admin-button" type="submit" disabled={!canManageRoles}>Create account</button></div></form>
-        <div className="admin-subsection"><div className="editor-heading"><div><p className="product-category">USERS</p><h3>Registered accounts</h3></div><span className="owner-badge">{Object.keys(users).length} total</span></div><div className="user-list">{Object.values(users).length === 0 ? <p className="empty-state">No accounts yet.</p> : Object.values(users).map((user) => <article className="user-row" key={user.username}><div><strong>{user.username}</strong><span>{user.createdAt ? new Date(user.createdAt).toLocaleString() : 'legacy account'}</span></div><code>{user.deviceId ? user.deviceId.slice(0, 12) : 'no device id'}</code><select aria-label={`Role for ${user.username}`} disabled={!canManageRoles || user.username.toLowerCase() === OWNER_LOGIN} value={user.username.toLowerCase() === OWNER_LOGIN ? 'owner' : user.role || 'user'} onChange={(event) => onChangeRole(user.username, event.target.value)}><option value="user">user</option><option value="admin">admin</option><option value="owner">owner</option></select></article>)}</div></div>
+        <div className="admin-subsection"><div className="editor-heading"><div><p className="product-category">USERS</p><h3>Registered accounts</h3></div><span className="owner-badge">{Object.keys(users).length} total</span></div><div className="user-list">{Object.values(users).length === 0 ? <p className="empty-state">No accounts yet.</p> : Object.values(users).map((user) => <article className={`user-row ${user.banned ? 'is-banned' : ''}`} key={user.username}><div><strong>{user.username}{user.banned ? ' · BANNED' : ''}</strong><span>{user.createdAt ? new Date(user.createdAt).toLocaleString() : 'legacy account'}</span></div><code>{user.deviceId ? user.deviceId.slice(0, 12) : 'no device id'}</code><select aria-label={`Role for ${user.username}`} disabled={!canManageRoles || user.username.toLowerCase() === OWNER_LOGIN} value={user.username.toLowerCase() === OWNER_LOGIN ? 'owner' : user.role || 'user'} onChange={(event) => onChangeRole(user.username, event.target.value)}><option value="user">user</option><option value="admin">admin</option><option value="owner">owner</option></select><button className="admin-button ban-button" type="button" disabled={!canManageRoles || user.username.toLowerCase() === OWNER_LOGIN} onClick={() => onChangeBan(user.username, !user.banned)}>{user.banned ? 'Unban' : 'Ban'}</button></article>)}</div></div>
         <div className="admin-subsection"><div className="editor-heading"><div><p className="product-category">AUDIT LOG</p><h3>Every action and result</h3></div><button className="admin-button" type="button" onClick={onExportAudit}>Download</button></div><div className="event-list">{events.length === 0 ? <p className="empty-state">No events yet.</p> : events.slice(0, 100).map((event) => <article className="event-row" key={event.id}><div><strong>{event.type}</strong><span>{event.username || 'anonymous'} · {new Date(event.at).toLocaleString()}</span></div><div className="event-detail"><code>{event.promoCode || event.rewardLabel || event.ip}</code>{event.promoCode && <button className="verify-button" type="button" onClick={() => onTogglePromo(event.promoCode)}>{promoStatuses[event.promoCode] === 'checked' ? 'Checked' : 'Mark checked'}</button>}</div></article>)}</div></div>
-        <div className="admin-subsection ticket-admin"><div className="editor-heading"><div><p className="product-category">SUPPORT</p><h3>All tickets</h3></div><span className="owner-badge">{tickets.length} total</span></div>{tickets.length === 0 ? <p className="empty-state">No tickets yet.</p> : <div className="ticket-list">{tickets.map((ticket) => <AdminTicket key={ticket.id} ticket={ticket} onSave={onTicketStatus} />)}</div>}</div>
+        <div className="admin-subsection ticket-admin"><div className="editor-heading"><div><p className="product-category">SUPPORT</p><h3>All tickets</h3></div><span className="owner-badge">{tickets.length} total</span></div>{tickets.length === 0 ? <p className="empty-state">No tickets yet.</p> : <div className="ticket-list">{tickets.map((ticket) => <AdminTicket key={ticket.id} ticket={ticket} onSave={onTicketStatus} onSend={onSendTicketMessage} />)}</div>}</div>
       </section>
     </section>
   );
@@ -559,6 +570,7 @@ export default function App() {
   const [eventsVersion, setEventsVersion] = useState(0);
   const lastTriggerRef = useRef(null);
   const authTriggerRef = useRef(null);
+  const spinRequestRef = useRef(false);
   const events = useMemo(() => readJson(EVENTS_STORAGE_KEY, []), [eventsVersion]);
   const users = useMemo(() => readStoredUsers(), [eventsVersion]);
   const claims = useMemo(() => readJson(CLAIMS_STORAGE_KEY, {}), [eventsVersion]);
@@ -693,7 +705,7 @@ export default function App() {
         const remote = await storeApi({ action: authMode, username: cleanUsername, passwordHash, deviceId, browserFingerprint });
         remoteUser = remote.user;
       } catch (remoteError) {
-        if (remoteError.code === 'USER_EXISTS' || remoteError.code === 'INVALID_CREDENTIALS') return setAuthError(remoteError.message);
+        if (['USER_EXISTS', 'ACCOUNT_EXISTS', 'INVALID_CREDENTIALS', 'USER_BANNED'].includes(remoteError.code)) return setAuthError(remoteError.message);
       }
       const users = readStoredUsers();
       if (authMode === 'register') {
@@ -798,12 +810,26 @@ export default function App() {
     if (!currentUser || !currentUserRecord?.passwordHash || !isAdmin) return;
     try {
       const remote = await storeApi({ action: 'ticket_update', username: currentUser, passwordHash: currentUserRecord.passwordHash, id: ticket.id, status, adminReply });
-      const nextTickets = tickets.map((item) => item.id === remote.ticket.id ? remote.ticket : item);
+      const nextTickets = tickets.map((item) => item.id === remote.ticket.id ? { ...item, ...remote.ticket, messages: item.messages || [] } : item);
       setTickets(nextTickets);
       writeJson(TICKETS_STORAGE_KEY, nextTickets);
       showToast(`Ticket #${ticket.id} updated`);
     } catch (error) {
       showToast(error.message || 'Ticket update failed');
+    }
+  };
+  const sendTicketMessage = async (ticket, message, attachmentUrl) => {
+    if (!currentUser || !currentUserRecord?.passwordHash) { showToast('Sign in again.'); return false; }
+    try {
+      const remote = await storeApi({ action: 'ticket_message', username: currentUser, passwordHash: currentUserRecord.passwordHash, id: ticket.id, message, attachmentUrl });
+      const nextTickets = tickets.map((item) => item.id === ticket.id ? { ...item, status: remote.status, updatedAt: remote.updatedAt, messages: [...(item.messages || []), remote.message] } : item);
+      setTickets(nextTickets);
+      writeJson(TICKETS_STORAGE_KEY, nextTickets);
+      showToast('Message sent');
+      return true;
+    } catch (error) {
+      showToast(error.message || 'Message failed');
+      return false;
     }
   };
   const saveAdminSettings = (nextSettings) => {
@@ -812,7 +838,7 @@ export default function App() {
       weights: Object.fromEntries(rewards.map((reward) => [reward.id, Math.max(0, Math.min(100, Number(nextSettings.weights[reward.id]) || 0))])),
     };
     writeJson(ADMIN_SETTINGS_KEY, normalized);
-    void storeApi({ action: 'settings', value: normalized });
+    void storeApi({ action: 'settings', actorUsername: currentUser, actorPasswordHash: currentUserRecord?.passwordHash, value: normalized });
     setAdminSettings(normalized);
     recordEvent('admin_settings', { username: currentUser, settings: normalized });
     setEventsVersion((version) => version + 1);
@@ -825,7 +851,7 @@ export default function App() {
     const newReward = { id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: cleanLabel, shortLabel: cleanLabel.slice(0, 13), weight: Math.max(0, Math.min(100, Number(weight) || 0.5)), color: `hsl(${Math.floor(Math.random() * 360)} 5% ${24 + Math.floor(Math.random() * 18)}%)` };
     const nextRewards = [...customRewards, newReward];
     writeJson(CUSTOM_REWARDS_KEY, nextRewards);
-    void storeApi({ action: 'reward', reward: newReward });
+    void storeApi({ action: 'reward', actorUsername: currentUser, actorPasswordHash: currentUserRecord?.passwordHash, reward: newReward });
     setCustomRewards(nextRewards);
     saveAdminSettings({ ...adminSettings, weights: { ...adminSettings.weights, [newReward.id]: newReward.weight } });
     showToast('Prize added');
@@ -836,7 +862,7 @@ export default function App() {
     const nextCodes = Array.from({ length: Math.max(1, Math.min(25, count)) }, () => ({ code: makeManualPromoCode(), discount: 10, status: 'active', createdAt, expiresAt: getPromoExpiry(createdAt), createdBy: currentUser }));
     const merged = [...nextCodes, ...generatedCodes];
     writeJson(GENERATED_CODES_KEY, merged);
-    nextCodes.forEach((code) => { void storeApi({ action: 'promo', code }); });
+    nextCodes.forEach((code) => { void storeApi({ action: 'promo', actorUsername: currentUser, actorPasswordHash: currentUserRecord?.passwordHash, code }); });
     setGeneratedCodes(merged);
     recordEvent('promo_generated', { username: currentUser, count: nextCodes.length, promoCodes: nextCodes.map((item) => item.code) });
     setEventsVersion((version) => version + 1);
@@ -857,7 +883,7 @@ export default function App() {
     }
     const passwordHash = await hashPassword(password);
     try {
-      const remote = await storeApi({ action: 'register', username: cleanLogin, passwordHash, role, deviceId: null, browserFingerprint: null, createdBy: currentUser, provisioned: true });
+      const remote = await storeApi({ action: 'register', username: cleanLogin, passwordHash, role, deviceId: null, browserFingerprint: null, actorUsername: currentUser, actorPasswordHash: currentUserRecord?.passwordHash, provisioned: true });
       nextUsers[key] = { ...remote.user, passwordHash };
     } catch (remoteError) {
       if (remoteError.code === 'USER_EXISTS') {
@@ -924,14 +950,38 @@ export default function App() {
     if (!nextUsers[key]) return;
     nextUsers[key] = { ...nextUsers[key], role: role === 'owner' || role === 'admin' ? role : 'user' };
     writeJson(USERS_STORAGE_KEY, nextUsers);
-    void storeApi({ action: 'role', username, role: nextUsers[key].role });
+    void storeApi({ action: 'role', actorUsername: currentUser, actorPasswordHash: currentUserRecord?.passwordHash, username, role: nextUsers[key].role });
     recordEvent('role_change', { username: currentUser, target: username, role: nextUsers[key].role });
     setEventsVersion((version) => version + 1);
     showToast(`${username} is now ${nextUsers[key].role}`);
   };
-  const spinRoulette = () => {
-    if (!currentUser || rouletteSpinning || (!isOwner && isSpinLocked(rouletteClaim)) || !adminSettings.enabled) return;
-    const selected = pickReward(adminSettings, rewards);
+  const changeBan = async (username, banned) => {
+    if (!isOwner || username.toLowerCase() === OWNER_LOGIN) return;
+    try {
+      const remote = await storeApi({ action: 'ban', actorUsername: currentUser, actorPasswordHash: currentUserRecord?.passwordHash, username, banned });
+      const nextUsers = readStoredUsers();
+      const key = username.toLowerCase();
+      nextUsers[key] = { ...nextUsers[key], ...remote.user };
+      writeJson(USERS_STORAGE_KEY, nextUsers);
+      setEventsVersion((version) => version + 1);
+      showToast(`${username} ${banned ? 'banned' : 'unbanned'}`);
+    } catch (error) {
+      showToast(error.message || 'Ban update failed');
+    }
+  };
+  const spinRoulette = async () => {
+    if (!currentUser || spinRequestRef.current || rouletteSpinning || (!isOwner && isSpinLocked(rouletteClaim)) || !adminSettings.enabled) return;
+    spinRequestRef.current = true;
+    let claim;
+    try {
+      const remote = await storeApi({ action: 'claim', username: currentUser, passwordHash: currentUserRecord?.passwordHash, deviceId: getDeviceId() });
+      claim = remote.claim;
+    } catch (error) {
+      spinRequestRef.current = false;
+      showToast(error.message || 'Spin failed');
+      return;
+    }
+    const selected = rewards.find((reward) => reward.id === claim.rewardId) || rewards[0];
     const slice = 360 / rewards.length;
     const selectedIndex = rewards.findIndex((reward) => reward.id === selected.id);
     setRouletteSpinning(true);
@@ -942,17 +992,14 @@ export default function App() {
       return rotation + 2160 + correction;
     });
     window.setTimeout(() => {
-      const promoCode = selected.id === 'promo' ? makePromoCode() : null;
-      const claimAt = new Date().toISOString();
-      const claim = { rewardId: selected.id, rewardLabel: selected.label, promoCode, at: claimAt, expiresAt: promoCode ? getPromoExpiry(claimAt) : null };
       const claims = readJson(CLAIMS_STORAGE_KEY, {});
       claims[getDeviceId()] = claim;
       claims[currentUser.toLowerCase()] = claim;
       writeJson(CLAIMS_STORAGE_KEY, claims);
-      void storeApi({ action: 'claim', username: currentUser, deviceId: getDeviceId(), claim });
-      recordEvent('spin', { username: currentUser, rewardId: selected.id, rewardLabel: selected.label, promoCode });
+      recordEvent('spin', { username: currentUser, rewardId: claim.rewardId, rewardLabel: claim.rewardLabel, promoCode: claim.promoCode });
       setRouletteClaim(claim);
       setRouletteSpinning(false);
+      spinRequestRef.current = false;
       setEventsVersion((version) => version + 1);
     }, 1900);
   };
@@ -964,8 +1011,8 @@ export default function App() {
         {activePage === 'home' && <><section className="hero page-enter" aria-labelledby="greeting"><p className="eyebrow">OXYGEN / DIGITAL STORE</p><h1 id="greeting">{getGreeting()}</h1><p>Welcome to Oxygen | go fuck this game dominate with Oxygen right now!</p><button className="explore-button" type="button" onClick={() => navigatePage('shop')}>Explore products</button></section><ShowcaseSection onSelect={setSelectedShowcase} /></>}
         {activePage === 'shop' && <section className="shop page-enter" aria-labelledby="shop-title"><div className="shop-heading"><p className="eyebrow">OXYGEN COLLECTION</p><h1 id="shop-title">Choose your Oxygen.</h1></div><div className="product-grid">{products.map((product) => <ProductCard key={product.id} product={product} onSelect={openProduct} />)}</div></section>}
         {activePage === 'rewards' && currentUser && <RoulettePage rotation={rouletteRotation} spinning={rouletteSpinning} claimed={!isOwner && isSpinLocked(rouletteClaim)} result={rouletteClaim} onSpin={spinRoulette} settings={adminSettings} rewards={rewards} />}
-        {activePage === 'profile' && <ProfilePage user={profileUser} claims={claims} events={events} tickets={tickets} isOwnProfile={Boolean(currentUser && profileName.toLowerCase() === currentUser.toLowerCase())} onAvatarUpload={uploadAvatar} onChangePassword={changePassword} onCreateTicket={createTicket} />}
-        {activePage === 'admin' && isAdmin && <AdminPage canManageRoles={isOwner} adminName={currentUser} events={events} settings={adminSettings} rewards={rewards} tickets={tickets} onSaveSettings={saveAdminSettings} onResetSettings={resetAdminSettings} onExportAudit={exportAudit} onAddReward={addReward} generatedCodes={generatedCodes} onGenerateCodes={generateCodes} users={users} promoStatuses={promoStatuses} onTogglePromo={togglePromoStatus} onChangeRole={changeRole} onCreateAccount={createAccount} onTicketStatus={updateTicket} />}
+        {activePage === 'profile' && <ProfilePage user={profileUser} claims={claims} events={events} tickets={tickets} isOwnProfile={Boolean(currentUser && profileName.toLowerCase() === currentUser.toLowerCase())} onAvatarUpload={uploadAvatar} onChangePassword={changePassword} onCreateTicket={createTicket} onSendTicketMessage={sendTicketMessage} />}
+        {activePage === 'admin' && isAdmin && <AdminPage canManageRoles={isOwner} adminName={currentUser} events={events} settings={adminSettings} rewards={rewards} tickets={tickets} onSaveSettings={saveAdminSettings} onResetSettings={resetAdminSettings} onExportAudit={exportAudit} onAddReward={addReward} generatedCodes={generatedCodes} onGenerateCodes={generateCodes} users={users} promoStatuses={promoStatuses} onTogglePromo={togglePromoStatus} onChangeRole={changeRole} onChangeBan={changeBan} onCreateAccount={createAccount} onTicketStatus={updateTicket} onSendTicketMessage={sendTicketMessage} />}
       </main>
       {selectedProduct && <ProductModal product={selectedProduct} onClose={closeProduct} onValidatePromo={validatePromo} />}
       {selectedShowcase && <ShowcaseModal image={selectedShowcase} onClose={() => setSelectedShowcase(null)} />}

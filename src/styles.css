@@ -345,7 +345,9 @@ h1, h2, p { margin-top: 0; }
 .weight-total { margin: 14px 0; color: #7f7f7f; font-size: 11px; }
 .admin-save { width: 100%; }
 .user-list { display: grid; gap: 8px; }
-.user-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; padding: 11px 13px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(0,0,0,.16); }
+.user-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 12px; align-items: center; padding: 11px 13px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(0,0,0,.16); }
+.user-row.is-banned { border-color: rgba(220,75,75,.35); }
+.ban-button { min-width: 62px; }
 .user-row > div { display: grid; gap: 3px; min-width: 0; }
 .user-row strong { overflow: hidden; color: #ddd; font-size: 12px; text-overflow: ellipsis; }
 .user-row span { overflow: hidden; color: #858585; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -418,6 +420,28 @@ h1, h2, p { margin-top: 0; }
 .ticket-actions select, .ticket-actions textarea { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; outline: none; color: #ddd; background: #191919; font: inherit; font-size: 12px; resize: vertical; }
 .ticket-actions .admin-button { min-height: 38px; }
 .ticket-admin .ticket-row { grid-template-columns: minmax(0, 1fr) minmax(230px, .38fr); }
+.ticket-chat { display: grid; gap: 14px; padding: 16px; border: 1px solid rgba(255,255,255,.1); border-radius: 12px; background: rgba(0,0,0,.16); }
+.ticket-chat > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.ticket-chat > header > div { display: grid; gap: 4px; }
+.ticket-chat > header strong { color: #ddd; font-size: 13px; }
+.ticket-chat > header span, .ticket-chat > header time { color: #858585; font-size: 11px; text-transform: capitalize; }
+.ticket-messages { display: grid; gap: 9px; }
+.ticket-message { max-width: 82%; justify-self: start; padding: 11px 13px; border: 1px solid rgba(255,255,255,.09); border-radius: 11px 11px 11px 3px; background: rgba(255,255,255,.035); }
+.ticket-message.is-staff { justify-self: end; border-radius: 11px 11px 3px 11px; background: rgba(255,255,255,.09); }
+.ticket-message > div { display: flex; align-items: center; gap: 8px; }
+.ticket-message b { color: #ccc; font-size: 11px; }
+.ticket-message time { color: #777; font-size: 10px; }
+.ticket-message p { margin: 7px 0 0; color: #bbb; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+.ticket-message img { display: block; width: min(100%, 360px); max-height: 260px; margin-top: 9px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; object-fit: contain; }
+.ticket-reply { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: end; }
+.ticket-reply textarea { width: 100%; min-height: 42px; padding: 10px 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; outline: none; color: #ddd; background: rgba(0,0,0,.2); font: inherit; font-size: 12px; resize: vertical; }
+.ticket-reply textarea:focus { border-color: rgba(255,255,255,.5); }
+.ticket-reply .file-picker { min-height: 42px; }
+.admin-ticket { display: grid; gap: 8px; }
+.admin-ticket > .ticket-chat { border-color: rgba(255,255,255,.14); }
+.ticket-status { display: flex; align-items: center; gap: 8px; }
+.ticket-status strong { margin-right: auto; color: #aaa; font-size: 12px; }
+.ticket-status select { min-height: 34px; padding: 0 9px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #ddd; background: #191919; font-size: 11px; }
 
 .toast { position: fixed; z-index: 30; bottom: 28px; left: 50%; padding: 13px 18px; border: 1px solid rgba(255,255,255,.16); border-radius: 12px; color: #e5e5e5; background: rgba(30,30,30,.92); box-shadow: 0 12px 30px rgba(0,0,0,.3); opacity: 0; pointer-events: none; transform: translate(-50%, 20px); transition: opacity .25s ease, transform .25s ease; backdrop-filter: blur(14px); }
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
@@ -487,7 +511,8 @@ h1, h2, p { margin-top: 0; }
   .event-row code { text-align: left; }
   .editor-heading { flex-direction: column; }
   .user-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .user-row select { grid-column: 1 / -1; width: 100%; }
+  .user-row select { grid-column: 1 / 2; width: 100%; }
+  .user-row .ban-button { grid-column: 2; width: 100%; }
   .event-detail { flex-wrap: wrap; }
   .wheel-stage { width: min(100%, 390px); }
   .add-reward-fields { grid-template-columns: 1fr 68px; }
@@ -505,6 +530,9 @@ h1, h2, p { margin-top: 0; }
   .ticket-form { grid-template-columns: 1fr; }
   .ticket-form > *, .ticket-form > input, .ticket-form textarea { grid-column: 1; }
   .ticket-row, .ticket-admin .ticket-row { grid-template-columns: 1fr; }
+  .ticket-reply { grid-template-columns: 1fr; }
+  .ticket-message { max-width: 94%; }
+  .ticket-status { flex-wrap: wrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {
