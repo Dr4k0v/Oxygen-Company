@@ -464,6 +464,15 @@ export default function App() {
     let active = true;
     storeApi().then((remote) => {
       if (!active) return;
+      if (Array.isArray(remote.users) && remote.users.length) {
+        const localUsers = readStoredUsers();
+        const mergedUsers = { ...localUsers };
+        remote.users.forEach((user) => {
+          const key = String(user.username || '').toLowerCase();
+          if (key) mergedUsers[key] = { ...mergedUsers[key], ...user };
+        });
+        writeJson(USERS_STORAGE_KEY, mergedUsers);
+      }
       if (Array.isArray(remote.events) && remote.events.length) {
         const localEvents = readJson(EVENTS_STORAGE_KEY, []);
         const byId = new Map([...remote.events, ...localEvents].map((event) => [event.id, event]));
