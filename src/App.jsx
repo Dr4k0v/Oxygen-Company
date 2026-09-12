@@ -29,6 +29,7 @@ const ADMIN_SETTINGS_KEY = 'oxygen-store-admin-settings';
 const PROMO_STATUS_KEY = 'oxygen-store-promo-status';
 const GENERATED_CODES_KEY = 'oxygen-store-generated-codes';
 const CUSTOM_REWARDS_KEY = 'oxygen-store-custom-rewards';
+const TICKETS_STORAGE_KEY = 'oxygen-store-tickets';
 const SPIN_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_ADMIN_SETTINGS = {
   enabled: true,
@@ -53,12 +54,74 @@ async function storeApi(body) {
       body: JSON.stringify(body),
     } : { headers: { accept: 'application/json' } });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok || result.ok === false) throw new StoreApiError(result.error || 'Remote store unavailable.', result.code || 'REQUEST_FAILED', response.status);
+    if (!response.ok || result.ok !== true) throw new StoreApiError(result.error || 'Remote store unavailable.', result.code || 'REQUEST_FAILED', response.status);
     return result;
   } catch (error) {
     if (error instanceof StoreApiError) throw error;
     throw new StoreApiError('Remote store unavailable.', 'NETWORK_ERROR', 0);
   }
+}
+
+function getProfileRouteName() {
+  if (typeof window === 'undefined') return '';
+  const match = window.location.pathname.match(/^\/profile\/([^/]+)\/?$/i);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+function getInitialPage() {
+  if (typeof window === 'undefined') return 'home';
+  if (getProfileRouteName()) return 'profile';
+  if (window.location.pathname.replace(/\/$/, '') === '/admin') return 'admin';
+  if (window.location.pathname.replace(/\/$/, '') === '/shop') return 'shop';
+  if (window.location.pathname.replace(/\/$/, '') === '/rewards') return 'rewards';
+  return 'home';
+}
+
+function prepareAvatar(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\/(png|jpe?g|webp)$/i.test(file.type)) return reject(new Error('Choose a PNG, JPG or WebP image.'));
+    if (file.size > 8 * 1024 * 1024) return reject(new Error('Avatar must be under 8 MB.'));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read image.'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('Could not decode image.'));
+      image.onload = () => {
+        const size = 320;
+        const scale = Math.min(1, size / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function prepareScreenshot(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\/(png|jpe?g|webp)$/i.test(file.type) || file.size > 8 * 1024 * 1024) return reject(new Error('Screenshot must be an image under 8 MB.'));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read screenshot.'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('Could not decode screenshot.'));
+      image.onload = () => {
+        const max = 1400;
+        const scale = Math.min(1, max / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.76));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function readCustomRewards() {
@@ -252,6 +315,14 @@ function UserIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="3.2" /><path d="M5.5 20c.7-3.4 3-5.2 6.5-5.2s5.8 1.8 6.5 5.2" /></svg>;
 }
 
+function AdminIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3 5 6v5c0 4.8 2.7 8.2 7 10 4.3-1.8 7-5.2 7-10V6l-7-3Z" /><path d="M9 12h6M12 9v6" /></svg>;
+}
+
+function LogoutIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10" /></svg>;
+}
+
 const showcaseImages = [
   { src: '/showcase/01-angles-overview.png', alt: 'Oxygen anti-aim overview' },
   { src: '/showcase/02-angles-settings.png', alt: 'Oxygen anti-aim settings' },
@@ -372,7 +443,64 @@ function AuthModal({ mode, onModeChange, onClose, onSubmit, error, busy, onCreat
   );
 }
 
-function RoulettePage({ rotation, spinning, claimed, result, onSpin, isAdmin, canManageRoles, adminName, events, settings, rewards, onSaveSettings, onResetSettings, onExportAudit, onAddReward, generatedCodes, onGenerateCodes, users, promoStatuses, onTogglePromo, onChangeRole, onCreateAccount }) {
+function ProfilePage({ user, claims, events, tickets = [], isOwnProfile, onAvatarUpload, onChangePassword, onCreateTicket = async () => false }) {
+  const fileRef = useRef(null);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [ticketSubject, setTicketSubject] = useState('');
+  const [ticketMessage, setTicketMessage] = useState('');
+  const [ticketAttachment, setTicketAttachment] = useState(null);
+  const [ticketBusy, setTicketBusy] = useState(false);
+  if (!user) return <section className="profile-page page-enter"><div className="profile-empty"><p className="eyebrow">OXYGEN PROFILE</p><h1>Profile not found.</h1><p>This account does not exist or has not synced yet.</p></div></section>;
+  const username = user.username;
+  const userClaims = Object.entries(claims)
+    .filter(([key]) => key.toLowerCase() === username.toLowerCase())
+    .map(([, claim]) => claim);
+  const spinEvents = events.filter((event) => event.type === 'spin' && event.username?.toLowerCase() === username.toLowerCase());
+  const prizeMap = new Map([...userClaims, ...spinEvents].map((prize) => [`${prize.at}-${prize.rewardId}`, prize]));
+  const prizes = [...prizeMap.values()].sort((a, b) => new Date(b.at) - new Date(a.at));
+  const userId = user.uid ? `#${user.uid}` : 'Local demo';
+  return (
+    <section className="profile-page page-enter" aria-labelledby="profile-title">
+      <div className="profile-header">
+        <div className="avatar-wrap"><img src={user.avatar || '/default-avatar.png'} alt={`${username} avatar`} />{isOwnProfile && <button type="button" onClick={() => fileRef.current?.click()}>Change avatar</button>}<input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) onAvatarUpload(file); event.target.value = ''; }} /></div>
+        <div><p className="eyebrow">OXYGEN PROFILE</p><h1 id="profile-title">{username}</h1><span className="profile-role">{user.role || 'user'}</span></div>
+      </div>
+      <div className="profile-stats"><div><span>Account UID</span><code>{userId}</code></div><div><span>Registered</span><strong>{user.createdAt ? new Date(user.createdAt).toLocaleString() : 'Legacy account'}</strong></div><div><span>Prizes</span><strong>{prizes.length}</strong></div><div><span>Created by</span><strong>{user.createdBy || 'Self registration'}</strong></div></div>
+      <section className="profile-prizes"><div className="profile-section-heading"><p className="product-category">PRIZE HISTORY</p><h2>All rewards</h2></div>{prizes.length === 0 ? <p className="empty-state">No prizes yet.</p> : <div className="prize-list">{prizes.map((prize, index) => <article key={`${prize.at}-${index}`}><div><strong>{prize.rewardLabel || prize.rewardId}</strong><span>{new Date(prize.at).toLocaleString()}</span></div><code>{prize.rewardId}</code>{prize.promoCode && <b>{prize.promoCode}</b>}</article>)}</div>}</section>
+      {isOwnProfile && <form className="password-panel" onSubmit={async (event) => { event.preventDefault(); if (newPassword !== confirmPassword) return onChangePassword(null, 'New passwords do not match.'); setPasswordBusy(true); const changed = await onChangePassword({ currentPassword, newPassword }); setPasswordBusy(false); if (changed) { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); } }}><div className="profile-section-heading"><p className="product-category">SECURITY</p><h2>Change password</h2></div><div className="password-fields"><input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} placeholder="Current password" autoComplete="current-password" minLength={6} required /><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="New password" autoComplete="new-password" minLength={6} required /><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Repeat new password" autoComplete="new-password" minLength={6} required /><button className="admin-button" type="submit" disabled={passwordBusy}>{passwordBusy ? 'Saving...' : 'Update password'}</button></div></form>}
+      {isOwnProfile && <section className="ticket-panel"><div className="profile-section-heading"><p className="product-category">SUPPORT</p><h2>Tickets</h2></div><form className="ticket-form" onSubmit={async (event) => { event.preventDefault(); setTicketBusy(true); const created = await onCreateTicket(ticketSubject, ticketMessage, ticketAttachment); setTicketBusy(false); if (created) { setTicketSubject(''); setTicketMessage(''); setTicketAttachment(null); } }}><input value={ticketSubject} onChange={(event) => setTicketSubject(event.target.value)} placeholder="Subject" maxLength={100} required /><textarea value={ticketMessage} onChange={(event) => setTicketMessage(event.target.value)} placeholder="Describe your issue" maxLength={3000} rows={4} required /><label className="file-picker"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; try { setTicketAttachment(await prepareScreenshot(file)); } catch { setTicketAttachment(null); } event.target.value = ''; }} />{ticketAttachment ? 'Screenshot attached' : 'Attach screenshot'}</label><button className="admin-button" type="submit" disabled={ticketBusy}>{ticketBusy ? 'Sending...' : 'Create ticket'}</button></form><div className="ticket-list">{tickets.length === 0 ? <p className="empty-state">No tickets yet.</p> : tickets.filter((ticket) => ticket.username?.toLowerCase() === username.toLowerCase()).map((ticket) => <article className="ticket-row" key={ticket.id}><div><strong>#{ticket.id} · {ticket.subject}</strong><span>Message: {new Date(ticket.createdAt).toLocaleString()} · {ticket.status.replace('_', ' ')}</span><p>{ticket.message}</p>{ticket.attachmentUrl && <a href={ticket.attachmentUrl} target="_blank" rel="noreferrer">Open screenshot</a>}{ticket.adminReply && <em>Reply ({new Date(ticket.repliedAt || ticket.updatedAt).toLocaleString()}): {ticket.adminReply}</em>}</div></article>)}</div></section>}
+    </section>
+  );
+}
+
+function RoulettePage({ rotation, spinning, claimed, result, onSpin, settings, rewards }) {
+  return (
+    <section className="rewards page-enter" aria-labelledby="rewards-title">
+      <div className="rewards-heading"><p className="eyebrow">OXYGEN REWARDS</p><h1 id="rewards-title">A little something for you.</h1><p>One spin every 7 days per browser/device. Good luck.</p></div>
+      <div className="roulette-layout">
+        <div className="roulette-card">
+          <div className="wheel-stage" role="button" tabIndex={claimed || spinning ? -1 : 0} aria-label="Spin Oxygen rewards roulette" onPointerDown={(event) => { if (event.button === 0) onSpin(); }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSpin(); } }}><span className="wheel-pointer" aria-hidden="true" /><div className={`roulette-wheel ${spinning ? 'is-spinning' : ''}`} style={{ '--wheel-rotation': `${rotation}deg`, background: getWheelGradient(rewards) }}><div className="wheel-center">OXYGEN</div>{rewards.map((reward, index) => { const angle = (360 / rewards.length) * index; return <span key={reward.id} className="wheel-label" style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translateY(-130px) rotate(${-angle}deg)` }}>{reward.shortLabel}</span>; })}</div></div>
+          <button className="buy-button spin-button" type="button" onClick={onSpin} disabled={spinning || claimed || !settings.enabled}>{!settings.enabled ? 'Roulette paused' : spinning ? 'Spinning...' : claimed ? `Next spin in ${formatCooldown(result)}` : 'Spin the wheel'}</button>
+          <p className="roulette-note">{claimed ? `Next attempt: ${getNextSpinAt(result)?.toLocaleString()}` : 'The result is saved to this browser and account.'}</p>
+        </div>
+        <div className="result-card" aria-live="polite"><p className="product-category">YOUR DROP</p>{!result ? <><h2>Ready?</h2><p>Tap the button to reveal your Oxygen reward.</p></> : <><h2>{result.rewardLabel}</h2>{result.promoCode ? <><p className="promo-code">{result.promoCode}</p><p>Send this promo code in a ticket on our Discord channel to claim your 10% discount. Valid for 7 days.</p><p className="promo-expiry">Expires: {new Date(result.expiresAt || getPromoExpiry(result.at)).toLocaleString()}</p><a className="discord-button" href={DISCORD_INVITE} target="_blank" rel="noopener noreferrer">Open Discord ticket</a></> : <p>{result.rewardId === 'nothing' ? 'Nothing this time — thanks for playing.' : 'Your reward is reserved for this account.'}</p>}</>}</div>
+      </div>
+    </section>
+  );
+}
+
+function AdminTicket({ ticket, onSave }) {
+  const [status, setStatus] = useState(ticket.status);
+  const [reply, setReply] = useState(ticket.adminReply || '');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setStatus(ticket.status); setReply(ticket.adminReply || ''); }, [ticket]);
+  return <article className="ticket-row"><div><strong>#{ticket.id} · {ticket.username} · {ticket.subject}</strong><span>Message: {new Date(ticket.createdAt).toLocaleString()} · {ticket.status.replace('_', ' ')}</span><p>{ticket.message}</p>{ticket.attachmentUrl && <a href={ticket.attachmentUrl} target="_blank" rel="noreferrer">Open screenshot</a>}{ticket.adminReply && <em>Reply ({new Date(ticket.repliedAt || ticket.updatedAt).toLocaleString()}): {ticket.adminReply}</em>}</div><form className="ticket-actions" onSubmit={async (event) => { event.preventDefault(); setBusy(true); await onSave(ticket, status, reply); setBusy(false); }}><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="open">open</option><option value="in_progress">in progress</option><option value="closed">closed</option></select><textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply" rows={3} maxLength={3000} /><button className="admin-button" type="submit" disabled={busy}>{busy ? 'Saving...' : 'Save reply'}</button></form></article>;
+}
+
+function AdminPage({ canManageRoles, adminName, events, settings, rewards, tickets = [], onSaveSettings, onResetSettings, onExportAudit, onAddReward, generatedCodes, onGenerateCodes, users, promoStatuses, onTogglePromo, onChangeRole, onCreateAccount, onTicketStatus }) {
   const [newRewardLabel, setNewRewardLabel] = useState('');
   const [newRewardWeight, setNewRewardWeight] = useState('0.5');
   const [newAccountLogin, setNewAccountLogin] = useState('');
@@ -388,20 +516,12 @@ function RoulettePage({ rotation, spinning, claimed, result, onSpin, isAdmin, ca
   const totalWeight = rewards.reduce((sum, reward) => sum + (Number(draft.weights[reward.id]) || 0), 0);
   useEffect(() => setDraft(settings), [settings]);
   return (
-    <section className="rewards page-enter" aria-labelledby="rewards-title">
-      <div className="rewards-heading"><p className="eyebrow">OXYGEN REWARDS</p><h1 id="rewards-title">A little something for you.</h1><p>One spin every 7 days per browser/device. Good luck.</p></div>
-      <div className="roulette-layout">
-        <div className="roulette-card">
-          <div className="wheel-stage" role="button" tabIndex={claimed || spinning ? -1 : 0} aria-label="Spin Oxygen rewards roulette" onPointerDown={(event) => { if (event.button === 0) onSpin(); }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSpin(); } }}><span className="wheel-pointer" aria-hidden="true" /><div className={`roulette-wheel ${spinning ? 'is-spinning' : ''}`} style={{ '--wheel-rotation': `${rotation}deg`, background: getWheelGradient(rewards) }}><div className="wheel-center">OXYGEN</div>{rewards.map((reward, index) => { const angle = (360 / rewards.length) * index; return <span key={reward.id} className="wheel-label" style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translateY(-130px) rotate(${-angle}deg)` }}>{reward.shortLabel}</span>; })}</div></div>
-          <button className="buy-button spin-button" type="button" onClick={onSpin} disabled={spinning || claimed || !settings.enabled}>{!settings.enabled ? 'Roulette paused' : spinning ? 'Spinning...' : claimed ? `Next spin in ${formatCooldown(result)}` : 'Spin the wheel'}</button>
-          <p className="roulette-note">{claimed ? `Next attempt: ${getNextSpinAt(result)?.toLocaleString()}` : 'The result is saved to this browser and account.'}</p>
-        </div>
-        <div className="result-card" aria-live="polite"><p className="product-category">YOUR DROP</p>{!result ? <><h2>Ready?</h2><p>Tap the button to reveal your Oxygen reward.</p></> : <><h2>{result.rewardLabel}</h2>{result.promoCode ? <><p className="promo-code">{result.promoCode}</p><p>Send this promo code in a ticket on our Discord channel to claim your 10% discount. Valid for 7 days.</p><p className="promo-expiry">Expires: {new Date(result.expiresAt || getPromoExpiry(result.at)).toLocaleString()}</p><a className="discord-button" href={DISCORD_INVITE} target="_blank" rel="noopener noreferrer">Open Discord ticket</a></> : <p>{result.rewardId === 'nothing' ? 'Nothing this time — thanks for playing.' : 'Your reward is reserved for this account.'}</p>}</>}</div>
-      </div>
-      {isAdmin && <section className="owner-panel" aria-labelledby="owner-title">
-        <div className="owner-heading"><div><p className="product-category">{canManageRoles ? 'OWNER' : 'ADMIN'} VIEW / {adminName}</p><h2 id="owner-title">Full activity control</h2></div><span className="owner-badge">client audit log</span></div>
+    <section className="admin-page rewards page-enter" aria-labelledby="owner-title">
+      <div className="rewards-heading"><p className="eyebrow">OXYGEN ADMIN</p><h1 id="owner-title">Control centre.</h1><p>Manage the shared store, accounts and reward system.</p></div>
+      <section className="owner-panel" aria-labelledby="admin-panel-title">
+        <div className="owner-heading"><div><p className="product-category">{canManageRoles ? 'OWNER' : 'ADMIN'} VIEW / {adminName}</p><h2 id="admin-panel-title">Full activity control</h2></div><span className="owner-badge">shared Neon data</span></div>
         <div className="owner-stats"><div><strong>{stats.registrations}</strong><span>registrations</span></div><div><strong>{stats.logins}</strong><span>logins</span></div><div><strong>{stats.spins}</strong><span>roulette spins</span></div><div><strong>{stats.promos}</strong><span>promo codes</span></div></div>
-        <p className="owner-warning">Static mode: this panel shows everything saved in the current browser. IP-wide and cross-device visibility requires a protected backend.</p>
+        <p className="owner-warning">Shared mode: accounts, rewards and activity are synchronized through Neon across browsers and devices.</p>
         <div className="owner-actions"><button className="admin-button" type="button" onClick={onExportAudit}>Export audit JSON</button><button className="admin-button" type="button" onClick={onResetSettings}>Reset low-probability defaults</button></div>
         <form className="probability-editor" onSubmit={(event) => { event.preventDefault(); onSaveSettings(draft); }}><div className="editor-heading"><div><p className="product-category">ROULETTE CONTROL</p><h3>Reward weights</h3></div><label className="toggle-label"><input type="checkbox" checked={draft.enabled} disabled={!canManageRoles} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /> Roulette enabled</label></div>{rewards.map((reward) => <label className="weight-row" key={reward.id}><span>{reward.label}</span><input type="number" min="0" max="100" step="0.1" disabled={!canManageRoles} value={draft.weights[reward.id] ?? 0} onChange={(event) => setDraft({ ...draft, weights: { ...draft.weights, [reward.id]: event.target.value } })} /><b>%</b></label>)}<p className="weight-total">Total weight: {totalWeight.toFixed(1)}% · every prize defaults to 0.5%</p><button className="buy-button admin-save" type="submit" disabled={!canManageRoles}>Save roulette controls</button></form>
         <form className="add-reward-form" onSubmit={(event) => { event.preventDefault(); if (newRewardLabel.trim()) { onAddReward(newRewardLabel, newRewardWeight); setNewRewardLabel(''); setNewRewardWeight('0.5'); } }}><div className="editor-heading"><div><p className="product-category">PRIZE BUILDER</p><h3>Add a prize</h3></div><span className="owner-badge">owner only</span></div><div className="add-reward-fields"><input value={newRewardLabel} onChange={(event) => setNewRewardLabel(event.target.value)} placeholder="Prize name, e.g. Oxygen Pro 3d" maxLength={36} disabled={!canManageRoles} /><input type="number" value={newRewardWeight} onChange={(event) => setNewRewardWeight(event.target.value)} min="0" max="100" step="0.1" aria-label="Prize chance" disabled={!canManageRoles} /><button className="admin-button" type="submit" disabled={!canManageRoles}>Add prize</button></div></form>
@@ -409,13 +529,15 @@ function RoulettePage({ rotation, spinning, claimed, result, onSpin, isAdmin, ca
         <form className="admin-subsection create-account-form" onSubmit={async (event) => { event.preventDefault(); const created = await onCreateAccount(newAccountLogin, newAccountPassword, newAccountRole); if (created) { setNewAccountLogin(''); setNewAccountPassword(''); setNewAccountRole('user'); } }}><div className="editor-heading"><div><p className="product-category">ACCOUNT CONTROL</p><h3>Create account</h3></div><span className="owner-badge">owner only</span></div><div className="create-account-fields"><input value={newAccountLogin} onChange={(event) => setNewAccountLogin(event.target.value)} placeholder="Login" minLength={3} maxLength={32} required disabled={!canManageRoles} /><input type="password" value={newAccountPassword} onChange={(event) => setNewAccountPassword(event.target.value)} placeholder="Temporary password" minLength={6} required disabled={!canManageRoles} /><select value={newAccountRole} onChange={(event) => setNewAccountRole(event.target.value)} disabled={!canManageRoles}><option value="user">user</option><option value="admin">admin</option><option value="owner">owner</option></select><button className="admin-button" type="submit" disabled={!canManageRoles}>Create account</button></div></form>
         <div className="admin-subsection"><div className="editor-heading"><div><p className="product-category">USERS</p><h3>Registered accounts</h3></div><span className="owner-badge">{Object.keys(users).length} total</span></div><div className="user-list">{Object.values(users).length === 0 ? <p className="empty-state">No accounts yet.</p> : Object.values(users).map((user) => <article className="user-row" key={user.username}><div><strong>{user.username}</strong><span>{user.createdAt ? new Date(user.createdAt).toLocaleString() : 'legacy account'}</span></div><code>{user.deviceId ? user.deviceId.slice(0, 12) : 'no device id'}</code><select aria-label={`Role for ${user.username}`} disabled={!canManageRoles || user.username.toLowerCase() === OWNER_LOGIN} value={user.username.toLowerCase() === OWNER_LOGIN ? 'owner' : user.role || 'user'} onChange={(event) => onChangeRole(user.username, event.target.value)}><option value="user">user</option><option value="admin">admin</option><option value="owner">owner</option></select></article>)}</div></div>
         <div className="admin-subsection"><div className="editor-heading"><div><p className="product-category">AUDIT LOG</p><h3>Every action and result</h3></div><button className="admin-button" type="button" onClick={onExportAudit}>Download</button></div><div className="event-list">{events.length === 0 ? <p className="empty-state">No events yet.</p> : events.slice(0, 100).map((event) => <article className="event-row" key={event.id}><div><strong>{event.type}</strong><span>{event.username || 'anonymous'} · {new Date(event.at).toLocaleString()}</span></div><div className="event-detail"><code>{event.promoCode || event.rewardLabel || event.ip}</code>{event.promoCode && <button className="verify-button" type="button" onClick={() => onTogglePromo(event.promoCode)}>{promoStatuses[event.promoCode] === 'checked' ? 'Checked' : 'Mark checked'}</button>}</div></article>)}</div></div>
-      </section>}
+        <div className="admin-subsection ticket-admin"><div className="editor-heading"><div><p className="product-category">SUPPORT</p><h3>All tickets</h3></div><span className="owner-badge">{tickets.length} total</span></div>{tickets.length === 0 ? <p className="empty-state">No tickets yet.</p> : <div className="ticket-list">{tickets.map((ticket) => <AdminTicket key={ticket.id} ticket={ticket} onSave={onTicketStatus} />)}</div>}</div>
+      </section>
     </section>
   );
 }
 
 export default function App() {
-  const [activePage, setActivePage] = useState('home');
+  const [activePage, setActivePage] = useState(getInitialPage);
+  const [profileName, setProfileName] = useState(getProfileRouteName);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedShowcase, setSelectedShowcase] = useState(null);
   const [toast, setToast] = useState({ visible: false, message: '' });
@@ -432,12 +554,16 @@ export default function App() {
   const [adminSettings, setAdminSettings] = useState(() => getAdminSettings([...rouletteRewards, ...readCustomRewards()]));
   const [generatedCodes, setGeneratedCodes] = useState(() => readJson(GENERATED_CODES_KEY, []));
   const [promoStatuses, setPromoStatuses] = useState(() => readJson(PROMO_STATUS_KEY, {}));
+  const [tickets, setTickets] = useState(() => readJson(TICKETS_STORAGE_KEY, []));
   const [, setCooldownTick] = useState(0);
   const [eventsVersion, setEventsVersion] = useState(0);
   const lastTriggerRef = useRef(null);
   const authTriggerRef = useRef(null);
   const events = useMemo(() => readJson(EVENTS_STORAGE_KEY, []), [eventsVersion]);
   const users = useMemo(() => readStoredUsers(), [eventsVersion]);
+  const claims = useMemo(() => readJson(CLAIMS_STORAGE_KEY, {}), [eventsVersion]);
+  const profileUser = profileName ? users[profileName.toLowerCase()] : null;
+  const currentUserRecord = currentUser ? users[currentUser.toLowerCase()] : null;
   const isRootOwner = currentUser?.toLowerCase() === OWNER_LOGIN;
   const isOwner = isRootOwner || currentUserRole === 'owner';
   const isAdmin = isOwner || currentUserRole === 'admin';
@@ -502,8 +628,34 @@ export default function App() {
     const timer = window.setInterval(() => setCooldownTick((tick) => tick + 1), 60_000);
     return () => window.clearInterval(timer);
   }, [currentUser]);
+  useEffect(() => {
+    if (!currentUser || !currentUserRecord?.passwordHash) return;
+    storeApi({ action: 'tickets', username: currentUser, passwordHash: currentUserRecord.passwordHash }).then((remote) => {
+      const nextTickets = Array.isArray(remote.tickets) ? remote.tickets : [];
+      setTickets(nextTickets);
+      writeJson(TICKETS_STORAGE_KEY, nextTickets);
+    }).catch(() => {});
+  }, [currentUser, currentUserRole, currentUserRecord?.passwordHash]);
 
   const showToast = (message) => { setToast({ visible: true, message }); window.setTimeout(() => setToast({ visible: false, message: '' }), 2800); };
+  const navigatePage = (page) => {
+    setProfileName('');
+    setActivePage(page);
+    const path = page === 'home' ? '/' : `/${page}`;
+    if (window.location.pathname !== path) window.history.pushState({ page }, '', path);
+  };
+  const navigateProfile = (username = currentUser) => {
+    if (!username) return;
+    setProfileName(username);
+    setActivePage('profile');
+    const path = `/profile/${encodeURIComponent(username)}`;
+    if (window.location.pathname !== path) window.history.pushState({ page: 'profile', username }, '', path);
+  };
+  useEffect(() => {
+    const onPopState = () => { setProfileName(getProfileRouteName()); setActivePage(getInitialPage()); };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
   const scrollToShowcase = () => {
     const target = document.getElementById('showcase-title');
     if (!target) return;
@@ -587,9 +739,72 @@ export default function App() {
     setCurrentUser(null);
     setCurrentUserRole('user');
     setRouletteClaim(null);
-    setActivePage('home');
+    navigatePage('home');
     setEventsVersion((version) => version + 1);
     showToast('Signed out');
+  };
+  const uploadAvatar = async (file) => {
+    if (!currentUser) return;
+    try {
+      const avatar = await prepareAvatar(file);
+      if (!currentUserRecord?.passwordHash) throw new Error('Sign in again before changing avatar.');
+      const remote = await storeApi({ action: 'profile', username: currentUser, passwordHash: currentUserRecord.passwordHash, avatar });
+      const nextUsers = readStoredUsers();
+      const key = currentUser.toLowerCase();
+      nextUsers[key] = { ...nextUsers[key], ...remote.user, avatar };
+      writeJson(USERS_STORAGE_KEY, nextUsers);
+      setEventsVersion((version) => version + 1);
+      recordEvent('avatar_change', { username: currentUser });
+      showToast('Avatar updated');
+    } catch (error) {
+      showToast(error.message || 'Avatar upload failed');
+    }
+  };
+  const changePassword = async (values, validationError) => {
+    if (validationError) { showToast(validationError); return false; }
+    if (!currentUser || !values || values.newPassword.length < 6) { showToast('New password must be at least 6 characters.'); return false; }
+    try {
+      const currentPasswordHash = await hashPassword(values.currentPassword);
+      const newPasswordHash = await hashPassword(values.newPassword);
+      await storeApi({ action: 'password', username: currentUser, currentPasswordHash, newPasswordHash });
+      const nextUsers = readStoredUsers();
+      const key = currentUser.toLowerCase();
+      nextUsers[key] = { ...nextUsers[key], passwordHash: newPasswordHash };
+      writeJson(USERS_STORAGE_KEY, nextUsers);
+      setEventsVersion((version) => version + 1);
+      recordEvent('password_change', { username: currentUser });
+      showToast('Password updated');
+      return true;
+    } catch (error) {
+      showToast(error.message || 'Password update failed');
+      return false;
+    }
+  };
+  const createTicket = async (subject, message, attachmentUrl) => {
+    if (!currentUser || !currentUserRecord?.passwordHash) { showToast('Sign in again.'); return false; }
+    try {
+      const remote = await storeApi({ action: 'ticket_create', username: currentUser, passwordHash: currentUserRecord.passwordHash, subject, message, attachmentUrl });
+      const nextTickets = [remote.ticket, ...tickets];
+      setTickets(nextTickets);
+      writeJson(TICKETS_STORAGE_KEY, nextTickets);
+      showToast(`Ticket #${remote.ticket.id} created`);
+      return true;
+    } catch (error) {
+      showToast(error.message || 'Ticket creation failed');
+      return false;
+    }
+  };
+  const updateTicket = async (ticket, status, adminReply) => {
+    if (!currentUser || !currentUserRecord?.passwordHash || !isAdmin) return;
+    try {
+      const remote = await storeApi({ action: 'ticket_update', username: currentUser, passwordHash: currentUserRecord.passwordHash, id: ticket.id, status, adminReply });
+      const nextTickets = tickets.map((item) => item.id === remote.ticket.id ? remote.ticket : item);
+      setTickets(nextTickets);
+      writeJson(TICKETS_STORAGE_KEY, nextTickets);
+      showToast(`Ticket #${ticket.id} updated`);
+    } catch (error) {
+      showToast(error.message || 'Ticket update failed');
+    }
   };
   const saveAdminSettings = (nextSettings) => {
     const normalized = {
@@ -744,11 +959,13 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar"><div className="social-area" aria-label="Social links"><span className="social-title">SOCIAL</span><a href="https://t.me/oxylua" target="_blank" rel="noopener noreferrer" aria-label="Oxygen Telegram"><TelegramIcon /><span>Telegram</span></a><a href="https://discord.gg/dqAKn8vHy" target="_blank" rel="noopener noreferrer" aria-label="Oxygen Discord"><DiscordIcon /><span>Discord</span></a></div><nav className="nav-pill" aria-label="Primary navigation"><button className={`nav-button ${activePage === 'home' ? 'is-active' : ''}`} type="button" onClick={() => setActivePage('home')} aria-label="Home" aria-pressed={activePage === 'home'}><HomeIcon /></button><button className={`nav-button ${activePage === 'shop' ? 'is-active' : ''}`} type="button" onClick={() => setActivePage('shop')} aria-label="Shop" aria-pressed={activePage === 'shop'}><CartIcon /></button>{currentUser && <button className={`nav-button ${activePage === 'rewards' ? 'is-active' : ''}`} type="button" onClick={() => setActivePage('rewards')} aria-label="Rewards roulette" aria-pressed={activePage === 'rewards'}><GiftIcon /></button>}</nav><div className="account-area">{currentUser ? <button className="account-button" type="button" onClick={logout} aria-label={`Sign out ${currentUser}`}><UserIcon /><span>{currentUser}</span></button> : <button className="account-button" type="button" onClick={(event) => openAuth('login', event)} aria-label="Open account sign in"><UserIcon /><span>Sign in</span></button>}</div></header>
+      <header className="topbar"><div className="social-area" aria-label="Social links"><span className="social-title">SOCIAL</span><a href="https://t.me/oxylua" target="_blank" rel="noopener noreferrer" aria-label="Oxygen Telegram"><TelegramIcon /><span>Telegram</span></a><a href="https://discord.gg/dqAKn8vHy" target="_blank" rel="noopener noreferrer" aria-label="Oxygen Discord"><DiscordIcon /><span>Discord</span></a></div><nav className="nav-pill" aria-label="Primary navigation"><button className={`nav-button ${activePage === 'home' ? 'is-active' : ''}`} type="button" onClick={() => navigatePage('home')} aria-label="Home" aria-pressed={activePage === 'home'}><HomeIcon /></button><button className={`nav-button ${activePage === 'shop' ? 'is-active' : ''}`} type="button" onClick={() => navigatePage('shop')} aria-label="Shop" aria-pressed={activePage === 'shop'}><CartIcon /></button>{currentUser && <button className={`nav-button ${activePage === 'rewards' ? 'is-active' : ''}`} type="button" onClick={() => navigatePage('rewards')} aria-label="Rewards roulette" aria-pressed={activePage === 'rewards'}><GiftIcon /></button>}{isAdmin && <button className={`nav-button ${activePage === 'admin' ? 'is-active' : ''}`} type="button" onClick={() => navigatePage('admin')} aria-label="Admin panel" aria-pressed={activePage === 'admin'}><AdminIcon /></button>}</nav><div className="account-area">{currentUser ? <><button className="account-button profile-button" type="button" onClick={() => navigateProfile()} aria-label={`Open ${currentUser} profile`}><img src={currentUserRecord?.avatar || '/default-avatar.png'} alt="" /><span>{currentUser}</span></button><button className="logout-button" type="button" onClick={logout} aria-label="Log out"><LogoutIcon /><span>Log out</span></button></> : <button className="account-button" type="button" onClick={(event) => openAuth('login', event)} aria-label="Open account sign in"><UserIcon /><span>Sign in</span></button>}</div></header>
       <main>
-        {activePage === 'home' && <><section className="hero page-enter" aria-labelledby="greeting"><p className="eyebrow">OXYGEN / DIGITAL STORE</p><h1 id="greeting">{getGreeting()}</h1><p>Welcome to Oxygen | go fuck this game dominate with Oxygen right now!</p><button className="explore-button" type="button" onClick={() => setActivePage('shop')}>Explore products</button></section><ShowcaseSection onSelect={setSelectedShowcase} /></>}
+        {activePage === 'home' && <><section className="hero page-enter" aria-labelledby="greeting"><p className="eyebrow">OXYGEN / DIGITAL STORE</p><h1 id="greeting">{getGreeting()}</h1><p>Welcome to Oxygen | go fuck this game dominate with Oxygen right now!</p><button className="explore-button" type="button" onClick={() => navigatePage('shop')}>Explore products</button></section><ShowcaseSection onSelect={setSelectedShowcase} /></>}
         {activePage === 'shop' && <section className="shop page-enter" aria-labelledby="shop-title"><div className="shop-heading"><p className="eyebrow">OXYGEN COLLECTION</p><h1 id="shop-title">Choose your Oxygen.</h1></div><div className="product-grid">{products.map((product) => <ProductCard key={product.id} product={product} onSelect={openProduct} />)}</div></section>}
-        {activePage === 'rewards' && currentUser && <RoulettePage rotation={rouletteRotation} spinning={rouletteSpinning} claimed={!isOwner && isSpinLocked(rouletteClaim)} result={rouletteClaim} onSpin={spinRoulette} isAdmin={isAdmin} canManageRoles={isOwner} adminName={currentUser} events={events} settings={adminSettings} rewards={rewards} onSaveSettings={saveAdminSettings} onResetSettings={resetAdminSettings} onExportAudit={exportAudit} onAddReward={addReward} generatedCodes={generatedCodes} onGenerateCodes={generateCodes} users={users} promoStatuses={promoStatuses} onTogglePromo={togglePromoStatus} onChangeRole={changeRole} onCreateAccount={createAccount} />}
+        {activePage === 'rewards' && currentUser && <RoulettePage rotation={rouletteRotation} spinning={rouletteSpinning} claimed={!isOwner && isSpinLocked(rouletteClaim)} result={rouletteClaim} onSpin={spinRoulette} settings={adminSettings} rewards={rewards} />}
+        {activePage === 'profile' && <ProfilePage user={profileUser} claims={claims} events={events} tickets={tickets} isOwnProfile={Boolean(currentUser && profileName.toLowerCase() === currentUser.toLowerCase())} onAvatarUpload={uploadAvatar} onChangePassword={changePassword} onCreateTicket={createTicket} />}
+        {activePage === 'admin' && isAdmin && <AdminPage canManageRoles={isOwner} adminName={currentUser} events={events} settings={adminSettings} rewards={rewards} tickets={tickets} onSaveSettings={saveAdminSettings} onResetSettings={resetAdminSettings} onExportAudit={exportAudit} onAddReward={addReward} generatedCodes={generatedCodes} onGenerateCodes={generateCodes} users={users} promoStatuses={promoStatuses} onTogglePromo={togglePromoStatus} onChangeRole={changeRole} onCreateAccount={createAccount} onTicketStatus={updateTicket} />}
       </main>
       {selectedProduct && <ProductModal product={selectedProduct} onClose={closeProduct} onValidatePromo={validatePromo} />}
       {selectedShowcase && <ShowcaseModal image={selectedShowcase} onClose={() => setSelectedShowcase(null)} />}

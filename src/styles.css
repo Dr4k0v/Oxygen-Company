@@ -89,7 +89,7 @@ button:focus-visible {
 .nav-button.is-active { color: #ededed; border-color: rgba(255,255,255,.1); background: rgba(255,255,255,.12); box-shadow: inset 0 1px rgba(255,255,255,.1); }
 .nav-button:hover:not(.is-active), .icon-button:hover { color: #e2e2e2; background: rgba(255,255,255,.07); }
 
-.account-area { position: absolute; top: 0; right: 0; pointer-events: auto; }
+.account-area { position: absolute; top: 0; right: 0; display: flex; align-items: center; gap: 8px; pointer-events: auto; }
 .account-button {
   display: flex;
   min-height: 52px;
@@ -109,6 +109,11 @@ button:focus-visible {
 }
 .account-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .account-button:hover { color: #fff; border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.1); transform: translateY(-1px); }
+.profile-button img { width: 32px; height: 32px; flex: 0 0 32px; border: 1px solid rgba(255,255,255,.18); border-radius: 50%; object-fit: cover; }
+.logout-button { display: flex; width: 52px; min-height: 52px; align-items: center; justify-content: center; padding: 0; border: 1px solid rgba(255,255,255,.14); border-radius: 17px; color: #999; background: rgba(22,22,22,.72); box-shadow: 0 12px 34px rgba(0,0,0,.28), inset 0 1px rgba(255,255,255,.06); backdrop-filter: blur(18px); cursor: pointer; transition: color .22s ease, border-color .22s ease, background-color .22s ease, transform .22s ease; }
+.logout-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.logout-button span { display: none; }
+.logout-button:hover { color: #fff; border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.1); transform: translateY(-1px); }
 
 main { min-height: 100svh; }
 
@@ -320,7 +325,7 @@ h1, h2, p { margin-top: 0; }
 .owner-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .owner-heading h2 { margin: 12px 0 0; color: #e3e3e3; font-size: 28px; }
 .owner-badge { padding: 8px 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 999px; color: #9e9e9e; font-size: 11px; letter-spacing: .7px; text-transform: uppercase; }
-.owner-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 26px 0 18px; }
+.owner-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 26px 0 18px; }
 .owner-stats > div { display: flex; flex-direction: column; gap: 4px; padding: 16px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px; background: rgba(255,255,255,.035); }
 .owner-stats strong { color: #ededed; font-size: 26px; }
 .owner-stats span { color: #838383; font-size: 12px; }
@@ -366,6 +371,54 @@ h1, h2, p { margin-top: 0; }
 .event-row code { color: #bdbdbd; font-size: 11px; text-align: right; }
 .empty-state { color: #888; font-size: 13px; }
 
+.profile-page { width: min(1120px, 100%); margin: 0 auto; padding: 156px 36px 84px; }
+.profile-header { display: flex; align-items: center; gap: 30px; margin-bottom: 34px; }
+.profile-header h1 { margin: 8px 0 12px; color: #e5e5e5; font-size: clamp(40px, 6vw, 68px); line-height: 1; }
+.profile-header .eyebrow { margin: 0; }
+.avatar-wrap { position: relative; width: 144px; height: 144px; flex: 0 0 144px; }
+.avatar-wrap img { display: block; width: 100%; height: 100%; border: 1px solid rgba(255,255,255,.18); border-radius: 18px; background: #171717; object-fit: cover; box-shadow: 0 18px 42px rgba(0,0,0,.32); }
+.avatar-wrap button { position: absolute; right: 8px; bottom: 8px; left: 8px; min-height: 34px; border: 1px solid rgba(255,255,255,.18); border-radius: 9px; color: #e0e0e0; background: rgba(12,12,12,.82); backdrop-filter: blur(12px); cursor: pointer; font-size: 11px; font-weight: 700; }
+.avatar-wrap button:hover { background: rgba(38,38,38,.94); }
+.profile-role { display: inline-flex; padding: 7px 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #aaa; background: rgba(255,255,255,.04); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.profile-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 20px; }
+.profile-stats > div { display: grid; min-height: 104px; align-content: start; gap: 10px; padding: 18px; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; background: rgba(255,255,255,.035); }
+.profile-stats span { color: #777; font-size: 11px; font-weight: 650; text-transform: uppercase; }
+.profile-stats strong, .profile-stats code { overflow-wrap: anywhere; color: #ddd; font-size: 13px; }
+.profile-prizes, .profile-empty, .password-panel, .ticket-panel { padding: 28px; border: 1px solid rgba(255,255,255,.14); border-radius: 16px; background: rgba(255,255,255,.035); }
+.profile-section-heading h2 { margin: 9px 0 22px; color: #e1e1e1; font-size: 25px; }
+.prize-list { display: grid; gap: 8px; }
+.prize-list article { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 14px; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(0,0,0,.16); }
+.prize-list article > div { display: grid; gap: 4px; }
+.prize-list strong { color: #ddd; font-size: 13px; }
+.prize-list span { color: #777; font-size: 11px; }
+.prize-list code, .prize-list b { color: #aaa; font-size: 11px; }
+.admin-page .owner-panel { margin-top: 0; }
+.password-panel { margin-top: 20px; }
+.password-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 9px; }
+.password-fields input { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; outline: none; color: #ddd; background: rgba(0,0,0,.2); font: inherit; font-size: 12px; }
+.password-fields input:focus { border-color: rgba(255,255,255,.5); }
+.ticket-panel { margin-top: 20px; }
+.ticket-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin-bottom: 24px; }
+.ticket-form > input, .ticket-form textarea { width: 100%; min-height: 44px; padding: 12px 13px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; outline: none; color: #ddd; background: rgba(0,0,0,.2); font: inherit; font-size: 13px; resize: vertical; }
+.ticket-form > input, .ticket-form textarea { grid-column: 1 / -1; }
+.ticket-form > input:focus, .ticket-form textarea:focus { border-color: rgba(255,255,255,.5); box-shadow: 0 0 0 3px rgba(255,255,255,.05); }
+.ticket-form .admin-button { min-height: 42px; padding-inline: 18px; }
+.file-picker { position: relative; display: inline-flex; min-height: 42px; align-items: center; justify-content: center; padding: 0 15px; overflow: hidden; border: 1px dashed rgba(255,255,255,.2); border-radius: 10px; color: #aaa; background: rgba(255,255,255,.035); cursor: pointer; font-size: 12px; font-weight: 650; }
+.file-picker:hover { color: #e0e0e0; border-color: rgba(255,255,255,.4); }
+.file-picker input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.ticket-list { display: grid; gap: 10px; }
+.ticket-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .42fr); gap: 18px; padding: 17px; border: 1px solid rgba(255,255,255,.09); border-radius: 11px; background: rgba(0,0,0,.16); }
+.ticket-row > div:first-child { display: grid; gap: 6px; min-width: 0; }
+.ticket-row strong { color: #ddd; font-size: 13px; }
+.ticket-row span { color: #777; font-size: 11px; text-transform: capitalize; }
+.ticket-row p { margin: 4px 0; color: #aaa; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+.ticket-row a { width: fit-content; color: #ccc; font-size: 12px; }
+.ticket-row em { padding: 10px; border-left: 2px solid #777; color: #bbb; background: rgba(255,255,255,.035); font-size: 12px; font-style: normal; line-height: 1.5; }
+.ticket-actions { display: grid; align-content: start; gap: 8px; }
+.ticket-actions select, .ticket-actions textarea { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; outline: none; color: #ddd; background: #191919; font: inherit; font-size: 12px; resize: vertical; }
+.ticket-actions .admin-button { min-height: 38px; }
+.ticket-admin .ticket-row { grid-template-columns: minmax(0, 1fr) minmax(230px, .38fr); }
+
 .toast { position: fixed; z-index: 30; bottom: 28px; left: 50%; padding: 13px 18px; border: 1px solid rgba(255,255,255,.16); border-radius: 12px; color: #e5e5e5; background: rgba(30,30,30,.92); box-shadow: 0 12px 30px rgba(0,0,0,.3); opacity: 0; pointer-events: none; transform: translate(-50%, 20px); transition: opacity .25s ease, transform .25s ease; backdrop-filter: blur(14px); }
 .toast.is-visible { opacity: 1; transform: translate(-50%, 0); }
 
@@ -383,6 +436,8 @@ h1, h2, p { margin-top: 0; }
   .showcase-section { padding-inline: 28px; }
   .roulette-layout { grid-template-columns: 1fr; }
   .roulette-card, .result-card { min-height: 0; }
+  .profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .password-fields { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 600px) {
@@ -393,6 +448,9 @@ h1, h2, p { margin-top: 0; }
   .social-area a span { display: none; }
   .account-button { min-height: 47px; padding: 0 12px; border-radius: 15px; }
   .account-button span { display: none; }
+  .profile-button { width: 47px; padding: 0; justify-content: center; }
+  .profile-button img { width: 31px; height: 31px; flex-basis: 31px; }
+  .logout-button { width: 47px; min-height: 47px; border-radius: 15px; }
   .hero { padding-inline: 22px; }
   .hero h1 { font-size: clamp(38px, 12vw, 54px); }
   .showcase-section { padding: 84px 18px 92px; }
@@ -436,6 +494,17 @@ h1, h2, p { margin-top: 0; }
   .add-reward-fields button { grid-column: 1 / -1; }
   .create-account-fields { grid-template-columns: 1fr 1fr; }
   .create-account-fields select, .create-account-fields button { grid-column: 1 / -1; }
+  .profile-page { padding: 120px 18px 44px; }
+  .profile-header { align-items: flex-start; gap: 18px; }
+  .avatar-wrap { width: 108px; height: 108px; flex-basis: 108px; }
+  .profile-header h1 { font-size: clamp(34px, 10vw, 48px); }
+  .profile-stats { grid-template-columns: 1fr; }
+  .profile-prizes, .profile-empty, .password-panel, .ticket-panel { padding: 22px 18px; }
+  .prize-list article { grid-template-columns: 1fr; gap: 7px; }
+  .password-fields { grid-template-columns: 1fr; }
+  .ticket-form { grid-template-columns: 1fr; }
+  .ticket-form > *, .ticket-form > input, .ticket-form textarea { grid-column: 1; }
+  .ticket-row, .ticket-admin .ticket-row { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

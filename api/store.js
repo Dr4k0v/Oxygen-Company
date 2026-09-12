@@ -7,6 +7,7 @@ function ensureSchema() {
   if (!schemaPromise) {
     schemaPromise = (async () => {
       await sql`CREATE TABLE IF NOT EXISTS oxygen_users (
+        uid BIGSERIAL UNIQUE,
         username TEXT PRIMARY KEY,
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'user',
@@ -15,8 +16,19 @@ function ensureSchema() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         created_by TEXT,
         provisioned BOOLEAN NOT NULL DEFAULT false,
-        demo BOOLEAN NOT NULL DEFAULT false
+        demo BOOLEAN NOT NULL DEFAULT false,
+        avatar_url TEXT
       )`;
+      await sql`CREATE SEQUENCE IF NOT EXISTS oxygen_users_uid_seq`;
+      await sql`ALTER TABLE oxygen_users ADD COLUMN IF NOT EXISTS uid BIGINT`;
+      await sql`WITH ranked AS (
+        SELECT username, ROW_NUMBER() OVER (ORDER BY created_at ASC, username ASC) + COALESCE((SELECT MAX(uid) FROM oxygen_users), 0) AS next_uid
+        FROM oxygen_users WHERE uid IS NULL
+      ) UPDATE oxygen_users SET uid = ranked.next_uid FROM ranked WHERE oxygen_users.username = ranked.username`;
+      await sql`SELECT setval('oxygen_users_uid_seq', COALESCE((SELECT MAX(uid) FROM oxygen_users), 0) + 1, false)`;
+      await sql`ALTER TABLE oxygen_users ALTER COLUMN uid SET DEFAULT nextval('oxygen_users_uid_seq')`;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS oxygen_users_uid_unique ON oxygen_users(uid)`;
+      await sql`ALTER TABLE oxygen_users ADD COLUMN IF NOT EXISTS avatar_url TEXT`;
       await sql`CREATE TABLE IF NOT EXISTS oxygen_events (
         id TEXT PRIMARY KEY,
         at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -58,6 +70,21 @@ function ensureSchema() {
         color TEXT NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`;
+      await sql`CREATE TABLE IF NOT EXISTS oxygen_tickets (
+        id BIGSERIAL PRIMARY KEY,
+        username TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        message TEXT NOT NULL,
+        attachment_url TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        admin_reply TEXT,
+        responded_by TEXT,
+        replied_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`;
+      await sql`ALTER TABLE oxygen_tickets ADD COLUMN IF NOT EXISTS attachment_url TEXT`;
+      await sql`ALTER TABLE oxygen_tickets ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ`;
     })().catch((error) => {
       schemaPromise = undefined;
       throw error;
@@ -78,9 +105,16 @@ function json(value) {
   return value && typeof value === 'object' ? value : {};
 }
 
+async function authenticate(body) {
+  const username = cleanUsername(body.username).toLowerCase();
+  if (!validUsername(username) || typeof body.passwordHash !== 'string') return null;
+  const rows = await sql`SELECT username, role FROM oxygen_users WHERE username = ${username} AND password_hash = ${body.passwordHash}`;
+  return rows[0] || null;
+}
+
 async function readState() {
   const [users, events, claims, settings, promoCodes, rewards] = await Promise.all([
-    sql`SELECT username, role, device_id AS "deviceId", browser_fingerprint AS "browserFingerprint", created_at AS "createdAt", created_by AS "createdBy", provisioned, demo FROM oxygen_users ORDER BY created_at DESC LIMIT 1000`,
+    sql`SELECT uid, username, role, device_id AS "deviceId", browser_fingerprint AS "browserFingerprint", created_at AS "createdAt", created_by AS "createdBy", provisioned, demo, avatar_url AS avatar FROM oxygen_users ORDER BY created_at DESC LIMIT 1000`,
     sql`SELECT id, at, type, username, device_id AS "deviceId", browser, ip, payload FROM oxygen_events ORDER BY at DESC LIMIT 500`,
     sql`SELECT claim_key AS "claimKey", username, device_id AS "deviceId", reward_id AS "rewardId", reward_label AS "rewardLabel", promo_code AS "promoCode", at, expires_at AS "expiresAt" FROM oxygen_claims`,
     sql`SELECT key, value FROM oxygen_settings`,
@@ -113,10 +147,10 @@ export default async function handler(req, res) {
         const role = key === 'drak0v' ? 'owner' : (body.provisioned && (body.role === 'owner' || body.role === 'admin') ? body.role : 'user');
         const rows = await sql`INSERT INTO oxygen_users (username, password_hash, role, device_id, browser_fingerprint, created_by, provisioned)
           VALUES (${key}, ${body.passwordHash}, ${role}, ${body.deviceId || null}, ${body.browserFingerprint || null}, ${body.createdBy || null}, ${Boolean(body.provisioned)})
-          RETURNING username, role, device_id AS "deviceId", browser_fingerprint AS "browserFingerprint", created_at AS "createdAt", created_by AS "createdBy", provisioned, demo`;
+          RETURNING uid, username, role, device_id AS "deviceId", browser_fingerprint AS "browserFingerprint", created_at AS "createdAt", created_by AS "createdBy", provisioned, demo, avatar_url AS avatar`;
         return res.status(201).json({ ok: true, user: rows[0] });
       }
-      const rows = await sql`SELECT username, role, device_id AS "deviceId", browser_fingerprint AS "browserFingerprint", created_at AS "createdAt", created_by AS "createdBy", provisioned, demo FROM oxygen_users WHERE username = ${key} AND password_hash = ${body.passwordHash}`;
+      const rows = await sql`SELECT uid, username, role, device_id AS "deviceId", browser_fingerprint AS "browserFingerprint", created_at AS "createdAt", created_by AS "createdBy", provisioned, demo, avatar_url AS avatar FROM oxygen_users WHERE username = ${key} AND password_hash = ${body.passwordHash}`;
       if (!rows.length) return res.status(401).json({ ok: false, code: 'INVALID_CREDENTIALS', error: 'Incorrect login or password.' });
       return res.status(200).json({ ok: true, user: rows[0] });
     }
@@ -163,6 +197,55 @@ export default async function handler(req, res) {
       if (!validUsername(username) || username === 'drak0v') return res.status(400).json({ ok: false, code: 'INVALID_INPUT', error: 'Invalid account.' });
       await sql`UPDATE oxygen_users SET role = ${body.role === 'owner' || body.role === 'admin' ? body.role : 'user'} WHERE username = ${username}`;
       return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'profile') {
+      const username = cleanUsername(body.username).toLowerCase();
+      const avatar = typeof body.avatar === 'string' && body.avatar.length <= 700000 ? body.avatar : null;
+      if (!validUsername(username) || !avatar || typeof body.passwordHash !== 'string' || !/^data:image\/(png|jpe?g|webp);base64,/i.test(avatar)) return res.status(400).json({ ok: false, code: 'INVALID_INPUT', error: 'Invalid avatar.' });
+      const rows = await sql`UPDATE oxygen_users SET avatar_url = ${avatar} WHERE username = ${username} AND password_hash = ${body.passwordHash} RETURNING uid, username, role, device_id AS "deviceId", browser_fingerprint AS "browserFingerprint", created_at AS "createdAt", created_by AS "createdBy", provisioned, demo, avatar_url AS avatar`;
+      if (!rows.length) return res.status(404).json({ ok: false, code: 'USER_NOT_FOUND', error: 'Account not found.' });
+      return res.status(200).json({ ok: true, user: rows[0] });
+    }
+
+    if (action === 'password') {
+      const username = cleanUsername(body.username).toLowerCase();
+      if (!validUsername(username) || typeof body.currentPasswordHash !== 'string' || typeof body.newPasswordHash !== 'string' || body.newPasswordHash.length < 8) return res.status(400).json({ ok: false, code: 'INVALID_INPUT', error: 'Invalid password request.' });
+      const rows = await sql`UPDATE oxygen_users SET password_hash = ${body.newPasswordHash} WHERE username = ${username} AND password_hash = ${body.currentPasswordHash} RETURNING username`;
+      if (!rows.length) return res.status(401).json({ ok: false, code: 'INVALID_CREDENTIALS', error: 'Current password is incorrect.' });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'tickets') {
+      const actor = await authenticate(body);
+      if (!actor) return res.status(401).json({ ok: false, code: 'INVALID_CREDENTIALS', error: 'Sign in again.' });
+      const rows = actor.role === 'admin' || actor.role === 'owner'
+        ? await sql`SELECT id, username, subject, message, attachment_url AS "attachmentUrl", status, admin_reply AS "adminReply", responded_by AS "respondedBy", replied_at AS "repliedAt", created_at AS "createdAt", updated_at AS "updatedAt" FROM oxygen_tickets ORDER BY updated_at DESC LIMIT 500`
+        : await sql`SELECT id, username, subject, message, attachment_url AS "attachmentUrl", status, admin_reply AS "adminReply", responded_by AS "respondedBy", replied_at AS "repliedAt", created_at AS "createdAt", updated_at AS "updatedAt" FROM oxygen_tickets WHERE username = ${actor.username} ORDER BY updated_at DESC LIMIT 100`;
+      return res.status(200).json({ ok: true, tickets: rows });
+    }
+
+    if (action === 'ticket_create') {
+      const actor = await authenticate(body);
+      const subject = String(body.subject || '').trim();
+      const message = String(body.message || '').trim();
+      const attachment = typeof body.attachmentUrl === 'string' && body.attachmentUrl.length <= 700000 && /^data:image\/(png|jpe?g|webp);base64,/i.test(body.attachmentUrl) ? body.attachmentUrl : null;
+      if (!actor) return res.status(401).json({ ok: false, code: 'INVALID_CREDENTIALS', error: 'Sign in again.' });
+      if (subject.length < 3 || subject.length > 100 || message.length < 5 || message.length > 3000) return res.status(400).json({ ok: false, code: 'INVALID_INPUT', error: 'Use a 3-100 character subject and 5-3000 character message.' });
+      const rows = await sql`INSERT INTO oxygen_tickets (username, subject, message, attachment_url) VALUES (${actor.username}, ${subject}, ${message}, ${attachment}) RETURNING id, username, subject, message, attachment_url AS "attachmentUrl", status, admin_reply AS "adminReply", responded_by AS "respondedBy", replied_at AS "repliedAt", created_at AS "createdAt", updated_at AS "updatedAt"`;
+      return res.status(201).json({ ok: true, ticket: rows[0] });
+    }
+
+    if (action === 'ticket_update') {
+      const actor = await authenticate(body);
+      if (!actor || (actor.role !== 'admin' && actor.role !== 'owner')) return res.status(403).json({ ok: false, code: 'FORBIDDEN', error: 'Admin access required.' });
+      const id = Number(body.id);
+      const status = ['open', 'in_progress', 'closed'].includes(body.status) ? body.status : 'open';
+      const adminReply = String(body.adminReply || '').trim().slice(0, 3000) || null;
+      if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ ok: false, code: 'INVALID_INPUT', error: 'Invalid ticket.' });
+      const rows = await sql`UPDATE oxygen_tickets SET status = ${status}, admin_reply = ${adminReply}, responded_by = ${actor.username}, replied_at = CASE WHEN ${adminReply} IS NULL THEN replied_at ELSE now() END, updated_at = now() WHERE id = ${id} RETURNING id, username, subject, message, attachment_url AS "attachmentUrl", status, admin_reply AS "adminReply", responded_by AS "respondedBy", replied_at AS "repliedAt", created_at AS "createdAt", updated_at AS "updatedAt"`;
+      if (!rows.length) return res.status(404).json({ ok: false, code: 'TICKET_NOT_FOUND', error: 'Ticket not found.' });
+      return res.status(200).json({ ok: true, ticket: rows[0] });
     }
 
     return res.status(400).json({ ok: false, code: 'UNKNOWN_ACTION', error: 'Unknown action.' });

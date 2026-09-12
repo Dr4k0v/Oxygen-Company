@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/profile/:path*", "destination": "/index.html" },
+    { "source": "/admin", "destination": "/index.html" },
+    { "source": "/shop", "destination": "/index.html" },
+    { "source": "/rewards", "destination": "/index.html" }
+  ]
+}
