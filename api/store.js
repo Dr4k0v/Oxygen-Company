@@ -54,6 +54,22 @@ function ensureSchema() {
         value JSONB NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`;
+      await sql`DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM oxygen_settings WHERE key = 'uid_priority_v1') THEN
+          UPDATE oxygen_users SET uid = -ABS(uid) WHERE uid IS NOT NULL;
+          UPDATE oxygen_users SET uid = 1 WHERE username = 'drak0v';
+          UPDATE oxygen_users SET uid = 2 WHERE username = 'vinted';
+          WITH ranked AS (
+            SELECT username, ROW_NUMBER() OVER (ORDER BY created_at ASC, username ASC) + 2 AS next_uid
+            FROM oxygen_users
+            WHERE username NOT IN ('drak0v', 'vinted')
+          )
+          UPDATE oxygen_users SET uid = ranked.next_uid FROM ranked WHERE oxygen_users.username = ranked.username;
+          PERFORM setval('oxygen_users_uid_seq', COALESCE((SELECT MAX(uid) FROM oxygen_users), 0) + 1, false);
+          INSERT INTO oxygen_settings (key, value) VALUES ('uid_priority_v1', '{"done":true}'::jsonb);
+        END IF;
+      END $$`;
       await sql`CREATE TABLE IF NOT EXISTS oxygen_promo_codes (
         code TEXT PRIMARY KEY,
         discount INTEGER NOT NULL DEFAULT 10,
