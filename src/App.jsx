@@ -35,6 +35,32 @@ const DEFAULT_ADMIN_SETTINGS = {
   weights: Object.fromEntries(rouletteRewards.map((reward) => [reward.id, reward.weight])),
 };
 
+const STORE_API_URL = import.meta.env.VITE_STORE_API_URL || '/api/store';
+
+class StoreApiError extends Error {
+  constructor(message, code, status) {
+    super(message);
+    this.code = code;
+    this.status = status;
+  }
+}
+
+async function storeApi(body) {
+  try {
+    const response = await fetch(STORE_API_URL, body ? {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    } : { headers: { accept: 'application/json' } });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result.ok === false) throw new StoreApiError(result.error || 'Remote store unavailable.', result.code || 'REQUEST_FAILED', response.status);
+    return result;
+  } catch (error) {
+    if (error instanceof StoreApiError) throw error;
+    throw new StoreApiError('Remote store unavailable.', 'NETWORK_ERROR', 0);
+  }
+}
+
 function readCustomRewards() {
   return readJson(CUSTOM_REWARDS_KEY, []);
 }
@@ -123,7 +149,7 @@ function getBrowserFingerprint() {
 function recordEvent(type, details = {}) {
   try {
     const events = readJson(EVENTS_STORAGE_KEY, []);
-    events.unshift({
+    const event = {
       id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
       at: new Date().toISOString(),
       type,
@@ -131,8 +157,10 @@ function recordEvent(type, details = {}) {
       browser: getBrowserFingerprint(),
       ip: 'Unavailable in static mode',
       ...details,
-    });
+    };
+    events.unshift(event);
     writeJson(EVENTS_STORAGE_KEY, events.slice(0, 250));
+    void storeApi({ action: 'event', event });
   } catch {
     // A private browsing context may deny storage; the UI still works.
   }
@@ -433,6 +461,32 @@ export default function App() {
     }
   }, []);
   useEffect(() => {
+    let active = true;
+    storeApi().then((remote) => {
+      if (!active) return;
+      if (Array.isArray(remote.events) && remote.events.length) {
+        const localEvents = readJson(EVENTS_STORAGE_KEY, []);
+        const byId = new Map([...remote.events, ...localEvents].map((event) => [event.id, event]));
+        writeJson(EVENTS_STORAGE_KEY, [...byId.values()].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 250));
+      }
+      if (remote.claims && Object.keys(remote.claims).length) writeJson(CLAIMS_STORAGE_KEY, { ...readJson(CLAIMS_STORAGE_KEY, {}), ...remote.claims });
+      if (remote.settings?.admin) {
+        writeJson(ADMIN_SETTINGS_KEY, remote.settings.admin);
+        setAdminSettings((current) => ({ ...current, ...remote.settings.admin }));
+      }
+      if (Array.isArray(remote.customRewards) && remote.customRewards.length) {
+        writeJson(CUSTOM_REWARDS_KEY, remote.customRewards);
+        setCustomRewards(remote.customRewards);
+      }
+      if (Array.isArray(remote.generatedCodes) && remote.generatedCodes.length) {
+        writeJson(GENERATED_CODES_KEY, remote.generatedCodes);
+        setGeneratedCodes(remote.generatedCodes);
+      }
+      setEventsVersion((version) => version + 1);
+    }).catch(() => { /* localStorage remains the offline fallback */ });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
     if (!currentUser) { setRouletteClaim(null); return; }
     const claims = readJson(CLAIMS_STORAGE_KEY, {});
     setRouletteClaim(claims[getDeviceId()] || claims[currentUser.toLowerCase()] || null);
@@ -470,26 +524,39 @@ export default function App() {
     if (authMode === 'register' && password !== confirmPassword) return setAuthError('Passwords do not match.');
     setAuthBusy(true);
     try {
-      const users = readStoredUsers();
       const deviceId = getDeviceId();
       const browserFingerprint = getBrowserFingerprint();
+      const passwordHash = await hashPassword(password);
+      let remoteUser = null;
+      try {
+        const remote = await storeApi({ action: authMode, username: cleanUsername, passwordHash, deviceId, browserFingerprint });
+        remoteUser = remote.user;
+      } catch (remoteError) {
+        if (remoteError.code === 'USER_EXISTS' || remoteError.code === 'INVALID_CREDENTIALS') return setAuthError(remoteError.message);
+      }
+      const users = readStoredUsers();
       if (authMode === 'register') {
-        if (users[usernameKey]) return setAuthError('This login is already registered.');
-        const deviceAccount = localStorage.getItem(DEVICE_ACCOUNT_KEY);
-        const duplicate = Object.values(users).find((user) => user.deviceId === deviceId || user.browserFingerprint === browserFingerprint);
-        if (deviceAccount || duplicate) return setAuthError('This browser/device already has an account. Sign in instead.');
-        users[usernameKey] = { username: cleanUsername, role: 'user', passwordHash: await hashPassword(password), deviceId, browserFingerprint, createdAt: new Date().toISOString() };
+        if (!remoteUser) {
+          if (users[usernameKey]) return setAuthError('This login is already registered.');
+          const deviceAccount = localStorage.getItem(DEVICE_ACCOUNT_KEY);
+          const duplicate = Object.values(users).find((user) => user.deviceId === deviceId || user.browserFingerprint === browserFingerprint);
+          if (deviceAccount || duplicate) return setAuthError('This browser/device already has an account. Sign in instead.');
+          remoteUser = { username: cleanUsername, role: 'user', deviceId, browserFingerprint, createdAt: new Date().toISOString() };
+        }
+        users[usernameKey] = { ...users[usernameKey], ...remoteUser, passwordHash };
         writeJson(USERS_STORAGE_KEY, users);
         localStorage.setItem(DEVICE_ACCOUNT_KEY, usernameKey);
         localStorage.setItem(SESSION_STORAGE_KEY, usernameKey);
         recordEvent('register', { username: cleanUsername });
-        setCurrentUser(cleanUsername);
-        setCurrentUserRole('user');
+        setCurrentUser(remoteUser.username || cleanUsername);
+        setCurrentUserRole(remoteUser.role || 'user');
         closeAuth();
         showToast('Account created');
       } else {
-        const user = users[usernameKey];
-        if (!user || user.passwordHash !== await hashPassword(password)) return setAuthError('Incorrect login or password.');
+        const user = remoteUser || users[usernameKey];
+        if (!user || (!remoteUser && user.passwordHash !== passwordHash)) return setAuthError('Incorrect login or password.');
+        users[usernameKey] = { ...users[usernameKey], ...user, passwordHash };
+        writeJson(USERS_STORAGE_KEY, users);
         localStorage.setItem(SESSION_STORAGE_KEY, usernameKey);
         localStorage.setItem(DEVICE_ACCOUNT_KEY, usernameKey);
         recordEvent('login', { username: user.username });
@@ -521,6 +588,7 @@ export default function App() {
       weights: Object.fromEntries(rewards.map((reward) => [reward.id, Math.max(0, Math.min(100, Number(nextSettings.weights[reward.id]) || 0))])),
     };
     writeJson(ADMIN_SETTINGS_KEY, normalized);
+    void storeApi({ action: 'settings', value: normalized });
     setAdminSettings(normalized);
     recordEvent('admin_settings', { username: currentUser, settings: normalized });
     setEventsVersion((version) => version + 1);
@@ -533,6 +601,7 @@ export default function App() {
     const newReward = { id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: cleanLabel, shortLabel: cleanLabel.slice(0, 13), weight: Math.max(0, Math.min(100, Number(weight) || 0.5)), color: `hsl(${Math.floor(Math.random() * 360)} 5% ${24 + Math.floor(Math.random() * 18)}%)` };
     const nextRewards = [...customRewards, newReward];
     writeJson(CUSTOM_REWARDS_KEY, nextRewards);
+    void storeApi({ action: 'reward', reward: newReward });
     setCustomRewards(nextRewards);
     saveAdminSettings({ ...adminSettings, weights: { ...adminSettings.weights, [newReward.id]: newReward.weight } });
     showToast('Prize added');
@@ -543,6 +612,7 @@ export default function App() {
     const nextCodes = Array.from({ length: Math.max(1, Math.min(25, count)) }, () => ({ code: makeManualPromoCode(), discount: 10, status: 'active', createdAt, expiresAt: getPromoExpiry(createdAt), createdBy: currentUser }));
     const merged = [...nextCodes, ...generatedCodes];
     writeJson(GENERATED_CODES_KEY, merged);
+    nextCodes.forEach((code) => { void storeApi({ action: 'promo', code }); });
     setGeneratedCodes(merged);
     recordEvent('promo_generated', { username: currentUser, count: nextCodes.length, promoCodes: nextCodes.map((item) => item.code) });
     setEventsVersion((version) => version + 1);
@@ -561,7 +631,17 @@ export default function App() {
       showToast('This login already exists');
       return false;
     }
-    nextUsers[key] = { username: cleanLogin, role: role === 'owner' || role === 'admin' ? role : 'user', passwordHash: await hashPassword(password), createdAt: new Date().toISOString(), createdBy: currentUser, provisioned: true };
+    const passwordHash = await hashPassword(password);
+    try {
+      const remote = await storeApi({ action: 'register', username: cleanLogin, passwordHash, role, deviceId: null, browserFingerprint: null, createdBy: currentUser, provisioned: true });
+      nextUsers[key] = { ...remote.user, passwordHash };
+    } catch (remoteError) {
+      if (remoteError.code === 'USER_EXISTS') {
+        showToast(remoteError.message);
+        return false;
+      }
+      nextUsers[key] = { username: cleanLogin, role: role === 'owner' || role === 'admin' ? role : 'user', passwordHash, createdAt: new Date().toISOString(), createdBy: currentUser, provisioned: true };
+    }
     writeJson(USERS_STORAGE_KEY, nextUsers);
     recordEvent('account_created_by_owner', { username: currentUser, target: cleanLogin, role: nextUsers[key].role });
     setEventsVersion((version) => version + 1);
@@ -620,6 +700,7 @@ export default function App() {
     if (!nextUsers[key]) return;
     nextUsers[key] = { ...nextUsers[key], role: role === 'owner' || role === 'admin' ? role : 'user' };
     writeJson(USERS_STORAGE_KEY, nextUsers);
+    void storeApi({ action: 'role', username, role: nextUsers[key].role });
     recordEvent('role_change', { username: currentUser, target: username, role: nextUsers[key].role });
     setEventsVersion((version) => version + 1);
     showToast(`${username} is now ${nextUsers[key].role}`);
@@ -644,6 +725,7 @@ export default function App() {
       claims[getDeviceId()] = claim;
       claims[currentUser.toLowerCase()] = claim;
       writeJson(CLAIMS_STORAGE_KEY, claims);
+      void storeApi({ action: 'claim', username: currentUser, deviceId: getDeviceId(), claim });
       recordEvent('spin', { username: currentUser, rewardId: selected.id, rewardLabel: selected.label, promoCode });
       setRouletteClaim(claim);
       setRouletteSpinning(false);
