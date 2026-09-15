@@ -30,7 +30,7 @@ const PROMO_STATUS_KEY = 'oxygen-store-promo-status';
 const GENERATED_CODES_KEY = 'oxygen-store-generated-codes';
 const CUSTOM_REWARDS_KEY = 'oxygen-store-custom-rewards';
 const TICKETS_STORAGE_KEY = 'oxygen-store-tickets';
-const SPIN_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const SPIN_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_ADMIN_SETTINGS = {
   enabled: true,
   weights: Object.fromEntries(rouletteRewards.map((reward) => [reward.id, reward.weight])),
@@ -483,7 +483,7 @@ function ProfilePage({ user, claims, events, tickets = [], isOwnProfile, onAvata
 function RoulettePage({ rotation, spinning, claimed, result, onSpin, settings, rewards }) {
   return (
     <section className="rewards page-enter" aria-labelledby="rewards-title">
-      <div className="rewards-heading"><p className="eyebrow">OXYGEN REWARDS</p><h1 id="rewards-title">A little something for you.</h1><p>One spin every 7 days per browser/device. Good luck.</p></div>
+      <div className="rewards-heading"><p className="eyebrow">OXYGEN REWARDS</p><h1 id="rewards-title">A little something for you.</h1><p>One spin every day per browser/device. Good luck.</p></div>
       <div className="roulette-layout">
         <div className="roulette-card">
           <div className="wheel-stage" role="button" tabIndex={claimed || spinning ? -1 : 0} aria-label="Spin Oxygen rewards roulette" onPointerDown={(event) => { if (event.button === 0) onSpin(); }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSpin(); } }}><span className="wheel-pointer" aria-hidden="true" /><div className={`roulette-wheel ${spinning ? 'is-spinning' : ''}`} style={{ '--wheel-rotation': `${rotation}deg`, background: getWheelGradient(rewards) }}><div className="wheel-center">OXYGEN</div>{rewards.map((reward, index) => { const angle = (360 / rewards.length) * index; return <span key={reward.id} className="wheel-label" style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translateY(-130px) rotate(${-angle}deg)` }}>{reward.shortLabel}</span>; })}</div></div>
@@ -519,11 +519,11 @@ function AdminPage({ canManageRoles, adminName, events, settings, rewards, ticke
   const [newAccountRole, setNewAccountRole] = useState('user');
   const [draft, setDraft] = useState(settings);
   const stats = useMemo(() => ({
-    registrations: events.filter((event) => event.type === 'register').length,
+    registrations: Object.keys(users).length,
     logins: events.filter((event) => event.type === 'login').length,
     spins: events.filter((event) => event.type === 'spin').length,
     promos: events.filter((event) => event.type === 'spin' && event.promoCode).length,
-  }), [events]);
+  }), [events, users]);
   const totalWeight = rewards.reduce((sum, reward) => sum + (Number(draft.weights[reward.id]) || 0), 0);
   useEffect(() => setDraft(settings), [settings]);
   return (
@@ -611,12 +611,8 @@ export default function App() {
         });
         writeJson(USERS_STORAGE_KEY, mergedUsers);
       }
-      if (Array.isArray(remote.events) && remote.events.length) {
-        const localEvents = readJson(EVENTS_STORAGE_KEY, []);
-        const byId = new Map([...remote.events, ...localEvents].map((event) => [event.id, event]));
-        writeJson(EVENTS_STORAGE_KEY, [...byId.values()].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 250));
-      }
-      if (remote.claims && Object.keys(remote.claims).length) writeJson(CLAIMS_STORAGE_KEY, { ...readJson(CLAIMS_STORAGE_KEY, {}), ...remote.claims });
+      if (Array.isArray(remote.events)) writeJson(EVENTS_STORAGE_KEY, remote.events.slice(0, 250));
+      if (remote.claims) writeJson(CLAIMS_STORAGE_KEY, remote.claims);
       if (remote.settings?.admin) {
         writeJson(ADMIN_SETTINGS_KEY, remote.settings.admin);
         setAdminSettings((current) => ({ ...current, ...remote.settings.admin }));

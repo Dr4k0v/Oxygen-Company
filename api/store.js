@@ -2,6 +2,7 @@ import { neon } from '@neondatabase/serverless';
 
 const sql = neon(process.env.DATABASE_URL);
 let schemaPromise;
+const SPIN_COOLDOWN_SQL = '1 day';
 
 const DEFAULT_REWARDS = [
   { id: 'nothing', label: 'Nothing', weight: 96.5 },
@@ -82,6 +83,17 @@ function ensureSchema() {
         value JSONB NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`;
+      await sql`DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM oxygen_settings WHERE key = 'daily_spin_reset_v1') THEN
+          DELETE FROM oxygen_claims;
+          INSERT INTO oxygen_settings (key, value) VALUES ('daily_spin_reset_v1', '{"done":true}'::jsonb);
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM oxygen_settings WHERE key = 'clear_drak0v_rewards_v1') THEN
+          DELETE FROM oxygen_events WHERE type = 'spin' AND lower(username) = 'drak0v';
+          INSERT INTO oxygen_settings (key, value) VALUES ('clear_drak0v_rewards_v1', '{"done":true}'::jsonb);
+        END IF;
+      END $$`;
       await sql`DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM oxygen_settings WHERE key = 'uid_priority_v1') THEN
@@ -249,8 +261,8 @@ export default async function handler(req, res) {
       const keys = [body.deviceId, actor.username].filter(Boolean);
       const canBypass = actor.role === 'admin' || actor.role === 'owner';
       if (!canBypass) {
-        await sql`DELETE FROM oxygen_claims WHERE claim_key IN (${actor.username}, ${body.deviceId || ''}) AND at < now() - interval '7 days'`;
-        const existing = await sql`SELECT claim_key FROM oxygen_claims WHERE claim_key IN (${actor.username}, ${body.deviceId || ''}) AND at >= now() - interval '7 days' LIMIT 1`;
+        await sql`DELETE FROM oxygen_claims WHERE claim_key IN (${actor.username}, ${body.deviceId || ''}) AND at < now() - ${SPIN_COOLDOWN_SQL}::interval`;
+        const existing = await sql`SELECT claim_key FROM oxygen_claims WHERE claim_key IN (${actor.username}, ${body.deviceId || ''}) AND at >= now() - ${SPIN_COOLDOWN_SQL}::interval LIMIT 1`;
         if (existing.length) return res.status(409).json({ ok: false, code: 'SPIN_LOCKED', error: 'This account has already used its spin this week.' });
       }
       const [settingsRows, customRewards] = await Promise.all([
