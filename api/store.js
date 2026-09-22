@@ -34,6 +34,8 @@ function ensureSchema() {
         role TEXT NOT NULL DEFAULT 'user',
         device_id TEXT,
         browser_fingerprint TEXT,
+        browser_id TEXT,
+        ip_address TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         created_by TEXT,
         provisioned BOOLEAN NOT NULL DEFAULT false,
@@ -54,6 +56,8 @@ function ensureSchema() {
       await sql`ALTER TABLE oxygen_users ALTER COLUMN uid SET DEFAULT nextval('oxygen_users_uid_seq')`;
       await sql`CREATE UNIQUE INDEX IF NOT EXISTS oxygen_users_uid_unique ON oxygen_users(uid)`;
       await sql`ALTER TABLE oxygen_users ADD COLUMN IF NOT EXISTS avatar_url TEXT`;
+      await sql`ALTER TABLE oxygen_users ADD COLUMN IF NOT EXISTS browser_id TEXT`;
+      await sql`ALTER TABLE oxygen_users ADD COLUMN IF NOT EXISTS ip_address TEXT`;
       await sql`ALTER TABLE oxygen_users ADD COLUMN IF NOT EXISTS banned BOOLEAN NOT NULL DEFAULT false`;
       await sql`ALTER TABLE oxygen_users ADD COLUMN IF NOT EXISTS ban_reason TEXT`;
       await sql`ALTER TABLE oxygen_users ADD COLUMN IF NOT EXISTS banned_at TIMESTAMPTZ`;
@@ -193,7 +197,7 @@ async function authenticateActor(body) {
 
 async function readState() {
   const [users, events, claims, settings, promoCodes, rewards] = await Promise.all([
-    sql`SELECT uid, username, role, device_id AS "deviceId", browser_fingerprint AS "browserFingerprint", created_at AS "createdAt", created_by AS "createdBy", provisioned, demo, avatar_url AS avatar, banned, ban_reason AS "banReason", banned_at AS "bannedAt", banned_by AS "bannedBy" FROM oxygen_users ORDER BY created_at DESC LIMIT 1000`,
+    sql`SELECT uid, username, role, device_id AS "deviceId", browser_id AS "browserId", browser_fingerprint AS "browserFingerprint", ip_address AS ip, created_at AS "createdAt", created_by AS "createdBy", provisioned, demo, avatar_url AS avatar, banned, ban_reason AS "banReason", banned_at AS "bannedAt", banned_by AS "bannedBy" FROM oxygen_users ORDER BY created_at DESC LIMIT 1000`,
     sql`SELECT id, at, type, username, device_id AS "deviceId", browser, ip, payload FROM oxygen_events ORDER BY at DESC LIMIT 500`,
     sql`SELECT claim_key AS "claimKey", username, device_id AS "deviceId", reward_id AS "rewardId", reward_label AS "rewardLabel", promo_code AS "promoCode", at, expires_at AS "expiresAt" FROM oxygen_claims`,
     sql`SELECT key, value FROM oxygen_settings`,
@@ -223,8 +227,9 @@ export default async function handler(req, res) {
       if (action === 'register') {
         const existing = await sql`SELECT username FROM oxygen_users WHERE username = ${key}`;
         if (existing.length) return res.status(409).json({ ok: false, code: 'USER_EXISTS', error: 'This login is already registered.' });
-        if (!body.provisioned && (body.deviceId || body.browserFingerprint)) {
-          const identity = await sql`SELECT username FROM oxygen_users WHERE (device_id IS NOT NULL AND device_id = ${body.deviceId || null}) OR (browser_fingerprint IS NOT NULL AND browser_fingerprint = ${body.browserFingerprint || null}) LIMIT 1`;
+        if (!body.provisioned && (body.deviceId || body.browserId || body.browserFingerprint)) {
+          const requestIp = String(req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || '').split(',')[0].trim() || null;
+          const identity = await sql`SELECT username FROM oxygen_users WHERE (device_id IS NOT NULL AND device_id = ${body.deviceId || null}) OR (browser_id IS NOT NULL AND browser_id = ${body.browserId || null}) OR (browser_id IS NOT NULL AND browser_fingerprint IS NOT NULL AND browser_fingerprint = ${body.browserFingerprint || null}) OR (ip_address IS NOT NULL AND ip_address = ${requestIp}) LIMIT 1`;
           if (identity.length) return res.status(409).json({ ok: false, code: 'ACCOUNT_EXISTS', error: 'This browser/device already has an account. Sign in instead.' });
         }
         let role = key === 'drak0v' ? 'owner' : 'user';
@@ -235,12 +240,13 @@ export default async function handler(req, res) {
           role = body.role === 'owner' || body.role === 'admin' ? body.role : 'user';
           createdBy = actor.username;
         }
-        const rows = await sql`INSERT INTO oxygen_users (username, password_hash, role, device_id, browser_fingerprint, created_by, provisioned)
-          VALUES (${key}, ${body.passwordHash}, ${role}, ${body.deviceId || null}, ${body.browserFingerprint || null}, ${createdBy}, ${Boolean(body.provisioned)})
-          RETURNING uid, username, role, device_id AS "deviceId", browser_fingerprint AS "browserFingerprint", created_at AS "createdAt", created_by AS "createdBy", provisioned, demo, avatar_url AS avatar, banned, ban_reason AS "banReason"`;
+        const requestIp = String(req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || '').split(',')[0].trim() || null;
+        const rows = await sql`INSERT INTO oxygen_users (username, password_hash, role, device_id, browser_id, browser_fingerprint, ip_address, created_by, provisioned)
+          VALUES (${key}, ${body.passwordHash}, ${role}, ${body.deviceId || null}, ${body.browserId || null}, ${body.browserFingerprint || null}, ${requestIp}, ${createdBy}, ${Boolean(body.provisioned)})
+          RETURNING uid, username, role, device_id AS "deviceId", browser_id AS "browserId", browser_fingerprint AS "browserFingerprint", ip_address AS ip, created_at AS "createdAt", created_by AS "createdBy", provisioned, demo, avatar_url AS avatar, banned, ban_reason AS "banReason"`;
         return res.status(201).json({ ok: true, user: rows[0] });
       }
-      const rows = await sql`SELECT uid, username, role, device_id AS "deviceId", browser_fingerprint AS "browserFingerprint", created_at AS "createdAt", created_by AS "createdBy", provisioned, demo, avatar_url AS avatar, banned, ban_reason AS "banReason" FROM oxygen_users WHERE username = ${key} AND password_hash = ${body.passwordHash}`;
+      const rows = await sql`SELECT uid, username, role, device_id AS "deviceId", browser_id AS "browserId", browser_fingerprint AS "browserFingerprint", ip_address AS ip, created_at AS "createdAt", created_by AS "createdBy", provisioned, demo, avatar_url AS avatar, banned, ban_reason AS "banReason" FROM oxygen_users WHERE username = ${key} AND password_hash = ${body.passwordHash}`;
       if (!rows.length) return res.status(401).json({ ok: false, code: 'INVALID_CREDENTIALS', error: 'Incorrect login or password.' });
       if (rows[0].banned) return res.status(403).json({ ok: false, code: 'USER_BANNED', error: rows[0].banReason || 'This account is banned.' });
       return res.status(200).json({ ok: true, user: rows[0] });
@@ -271,7 +277,12 @@ export default async function handler(req, res) {
       ]);
       const rouletteSettings = json(settingsRows[0]?.value);
       if (rouletteSettings.enabled === false && !canBypass) return res.status(403).json({ ok: false, code: 'ROULETTE_DISABLED', error: 'Roulette is currently disabled.' });
-      const selected = pickServerReward([...DEFAULT_REWARDS, ...customRewards], rouletteSettings.weights);
+      const overrides = json(rouletteSettings.rewardOverrides);
+      const removed = Array.isArray(rouletteSettings.removedRewardIds) ? rouletteSettings.removedRewardIds : [];
+      const availableRewards = [...DEFAULT_REWARDS, ...customRewards]
+        .filter((reward) => !removed.includes(reward.id))
+        .map((reward) => ({ ...reward, ...(overrides[reward.id] || {}), shortLabel: String(overrides[reward.id]?.label || reward.label).slice(0, 13) }));
+      const selected = pickServerReward(availableRewards, rouletteSettings.weights);
       const claimAt = new Date();
       const promoCode = selected.id === 'promo' ? `OXYGEN10-${crypto.randomUUID().replaceAll('-', '').slice(0, 6).toUpperCase()}` : null;
       const claim = { rewardId: selected.id, rewardLabel: selected.label, promoCode, at: claimAt, expiresAt: promoCode ? new Date(claimAt.getTime() + 7 * 24 * 60 * 60 * 1000) : null };

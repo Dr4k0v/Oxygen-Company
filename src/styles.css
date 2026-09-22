@@ -338,10 +338,13 @@ h1, h2, p { margin-top: 0; }
 .editor-heading h3 { margin: 7px 0 0; color: #dedede; font-size: 18px; }
 .toggle-label { display: inline-flex; align-items: center; gap: 8px; color: #aaa; font-size: 12px; }
 .toggle-label input { accent-color: #dedede; }
-.weight-row { display: grid; grid-template-columns: 1fr 92px 16px; gap: 9px; align-items: center; margin: 8px 0; color: #bdbdbd; font-size: 12px; }
+.weight-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px 16px auto; gap: 9px; align-items: center; margin: 8px 0; color: #bdbdbd; font-size: 12px; }
 .weight-row input { width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; color: #e5e5e5; outline: none; background: rgba(0,0,0,.2); }
 .weight-row input:focus { border-color: rgba(255,255,255,.5); }
 .weight-row b { color: #777; font-size: 12px; }
+.remove-reward-button { min-height: 30px; padding: 0 9px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; color: #aaa; background: rgba(255,255,255,.04); cursor: pointer; font-size: 10px; }
+.remove-reward-button:hover:not(:disabled) { border-color: rgba(255,130,130,.5); color: #f0b0b0; background: rgba(180,40,40,.12); }
+.remove-reward-button:disabled { opacity: .4; cursor: not-allowed; }
 .weight-total { margin: 14px 0; color: #7f7f7f; font-size: 11px; }
 .admin-save { width: 100%; }
 .user-list { display: grid; gap: 8px; }
@@ -515,6 +518,8 @@ h1, h2, p { margin-top: 0; }
   .user-row .ban-button { grid-column: 2; width: 100%; }
   .event-detail { flex-wrap: wrap; }
   .wheel-stage { width: min(100%, 390px); }
+  .weight-row { grid-template-columns: minmax(0, 1fr) 68px 14px auto; gap: 6px; }
+  .remove-reward-button { padding: 0 6px; }
   .add-reward-fields { grid-template-columns: 1fr 68px; }
   .add-reward-fields button { grid-column: 1 / -1; }
   .create-account-fields { grid-template-columns: 1fr 1fr; }

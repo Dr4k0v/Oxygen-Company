@@ -29,6 +29,8 @@ const ADMIN_SETTINGS_KEY = 'oxygen-store-admin-settings';
 const PROMO_STATUS_KEY = 'oxygen-store-promo-status';
 const GENERATED_CODES_KEY = 'oxygen-store-generated-codes';
 const CUSTOM_REWARDS_KEY = 'oxygen-store-custom-rewards';
+const REWARD_CONFIG_KEY = 'oxygen-store-reward-config';
+const BROWSER_ID_KEY = 'oxygen-store-browser-id';
 const TICKETS_STORAGE_KEY = 'oxygen-store-tickets';
 const SPIN_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_ADMIN_SETTINGS = {
@@ -128,6 +130,24 @@ function readCustomRewards() {
   return readJson(CUSTOM_REWARDS_KEY, []);
 }
 
+function readRewardConfig() {
+  const saved = readJson(REWARD_CONFIG_KEY, {});
+  return {
+    overrides: saved.overrides || {},
+    removed: Array.isArray(saved.removed) ? saved.removed : [],
+  };
+}
+
+function getConfiguredRewards(customRewards, config = readRewardConfig()) {
+  return [...rouletteRewards, ...customRewards]
+    .filter((reward) => !config.removed.includes(reward.id))
+    .map((reward) => {
+      const override = config.overrides[reward.id] || {};
+      const label = typeof override.label === 'string' && override.label.trim() ? override.label.trim() : reward.label;
+      return { ...reward, ...override, label, shortLabel: label.slice(0, 13) };
+    });
+}
+
 function readJson(key, fallback) {
   try {
     const value = JSON.parse(localStorage.getItem(key) || 'null');
@@ -197,9 +217,23 @@ function getDeviceId() {
   }
 }
 
+function getBrowserId() {
+  try {
+    let id = localStorage.getItem(BROWSER_ID_KEY);
+    if (!id) {
+      id = globalThis.crypto?.randomUUID?.() || `browser-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(BROWSER_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return 'memory-browser';
+  }
+}
+
 function getBrowserFingerprint() {
   if (typeof navigator === 'undefined') return 'unknown';
   return hashText([
+    getBrowserId(),
     navigator.userAgent,
     navigator.language,
     navigator.platform,
@@ -207,6 +241,22 @@ function getBrowserFingerprint() {
     window.devicePixelRatio || 1,
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   ].join('|'));
+}
+
+async function getPublicIp() {
+  let timeout;
+  try {
+    const controller = new AbortController();
+    timeout = window.setTimeout(() => controller.abort(), 3500);
+    const response = await fetch('https://api64.ipify.org?format=json', { signal: controller.signal, cache: 'no-store' });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    return typeof payload.ip === 'string' && payload.ip.trim() ? payload.ip.trim() : null;
+  } catch {
+    return null;
+  } finally {
+    if (timeout) window.clearTimeout(timeout);
+  }
 }
 
 function recordEvent(type, details = {}) {
@@ -511,13 +561,14 @@ function AdminTicket({ ticket, onSave, onSend }) {
   return <div className="admin-ticket"><div className="ticket-status"><strong>{ticket.username}</strong><select value={status} onChange={(event) => setStatus(event.target.value)}><option value="open">open</option><option value="in_progress">in progress</option><option value="closed">closed</option></select><button className="admin-button" type="button" disabled={busy || status === ticket.status} onClick={async () => { setBusy(true); await onSave(ticket, status); setBusy(false); }}>Save status</button></div><TicketConversation ticket={ticket} onSend={onSend} /></div>;
 }
 
-function AdminPage({ canManageRoles, adminName, events, settings, rewards, tickets = [], onSaveSettings, onResetSettings, onExportAudit, onAddReward, generatedCodes, onGenerateCodes, users, promoStatuses, onTogglePromo, onChangeRole, onChangeBan, onCreateAccount, onTicketStatus, onSendTicketMessage }) {
+function AdminPage({ canManageRoles, adminName, events, settings, rewards, tickets = [], onSaveSettings, onResetSettings, onExportAudit, onAddReward, onDeleteReward, generatedCodes, onGenerateCodes, users, promoStatuses, onTogglePromo, onChangeRole, onChangeBan, onCreateAccount, onTicketStatus, onSendTicketMessage }) {
   const [newRewardLabel, setNewRewardLabel] = useState('');
   const [newRewardWeight, setNewRewardWeight] = useState('0.5');
   const [newAccountLogin, setNewAccountLogin] = useState('');
   const [newAccountPassword, setNewAccountPassword] = useState('');
   const [newAccountRole, setNewAccountRole] = useState('user');
   const [draft, setDraft] = useState(settings);
+  const [rewardDrafts, setRewardDrafts] = useState(() => Object.fromEntries(rewards.map((reward) => [reward.id, reward.label])));
   const stats = useMemo(() => ({
     registrations: Object.keys(users).length,
     logins: events.filter((event) => event.type === 'login').length,
@@ -526,6 +577,7 @@ function AdminPage({ canManageRoles, adminName, events, settings, rewards, ticke
   }), [events, users]);
   const totalWeight = rewards.reduce((sum, reward) => sum + (Number(draft.weights[reward.id]) || 0), 0);
   useEffect(() => setDraft(settings), [settings]);
+  useEffect(() => setRewardDrafts(Object.fromEntries(rewards.map((reward) => [reward.id, reward.label]))), [rewards]);
   return (
     <section className="admin-page rewards page-enter" aria-labelledby="owner-title">
       <div className="rewards-heading"><p className="eyebrow">OXYGEN ADMIN</p><h1 id="owner-title">Control centre.</h1><p>Manage the shared store, accounts and reward system.</p></div>
@@ -534,7 +586,7 @@ function AdminPage({ canManageRoles, adminName, events, settings, rewards, ticke
         <div className="owner-stats"><div><strong>{stats.registrations}</strong><span>registrations</span></div><div><strong>{stats.logins}</strong><span>logins</span></div><div><strong>{stats.spins}</strong><span>roulette spins</span></div><div><strong>{stats.promos}</strong><span>promo codes</span></div></div>
         <p className="owner-warning">Shared mode: accounts, rewards and activity are synchronized through Neon across browsers and devices.</p>
         <div className="owner-actions"><button className="admin-button" type="button" onClick={onExportAudit}>Export audit JSON</button><button className="admin-button" type="button" onClick={onResetSettings}>Reset low-probability defaults</button></div>
-        <form className="probability-editor" onSubmit={(event) => { event.preventDefault(); onSaveSettings(draft); }}><div className="editor-heading"><div><p className="product-category">ROULETTE CONTROL</p><h3>Reward weights</h3></div><label className="toggle-label"><input type="checkbox" checked={draft.enabled} disabled={!canManageRoles} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /> Roulette enabled</label></div>{rewards.map((reward) => <label className="weight-row" key={reward.id}><span>{reward.label}</span><input type="number" min="0" max="100" step="0.1" disabled={!canManageRoles} value={draft.weights[reward.id] ?? 0} onChange={(event) => setDraft({ ...draft, weights: { ...draft.weights, [reward.id]: event.target.value } })} /><b>%</b></label>)}<p className="weight-total">Total weight: {totalWeight.toFixed(1)}% · every prize defaults to 0.5%</p><button className="buy-button admin-save" type="submit" disabled={!canManageRoles}>Save roulette controls</button></form>
+        <form className="probability-editor" onSubmit={(event) => { event.preventDefault(); onSaveSettings(draft, rewardDrafts); }}><div className="editor-heading"><div><p className="product-category">ROULETTE CONTROL</p><h3>Reward weights &amp; names</h3></div><label className="toggle-label"><input type="checkbox" checked={draft.enabled} disabled={!canManageRoles} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /> Roulette enabled</label></div>{rewards.map((reward) => <div className="weight-row" key={reward.id}><input className="reward-name-input" aria-label={`Name for ${reward.label}`} maxLength="36" disabled={!canManageRoles} value={rewardDrafts[reward.id] ?? reward.label} onChange={(event) => setRewardDrafts({ ...rewardDrafts, [reward.id]: event.target.value })} /><input type="number" min="0" max="100" step="0.1" aria-label={`Chance for ${reward.label}`} disabled={!canManageRoles} value={draft.weights[reward.id] ?? 0} onChange={(event) => setDraft({ ...draft, weights: { ...draft.weights, [reward.id]: event.target.value } })} /><b>%</b><button className="remove-reward-button" type="button" disabled={!canManageRoles || rewards.length <= 1} onClick={() => onDeleteReward(reward.id)} aria-label={`Delete ${reward.label}`}>Delete</button></div>)}<p className="weight-total">Total weight: {totalWeight.toFixed(1)}% · every prize defaults to 0.5%</p><button className="buy-button admin-save" type="submit" disabled={!canManageRoles}>Save roulette controls</button></form>
         <form className="add-reward-form" onSubmit={(event) => { event.preventDefault(); if (newRewardLabel.trim()) { onAddReward(newRewardLabel, newRewardWeight); setNewRewardLabel(''); setNewRewardWeight('0.5'); } }}><div className="editor-heading"><div><p className="product-category">PRIZE BUILDER</p><h3>Add a prize</h3></div><span className="owner-badge">owner only</span></div><div className="add-reward-fields"><input value={newRewardLabel} onChange={(event) => setNewRewardLabel(event.target.value)} placeholder="Prize name, e.g. Oxygen Pro 3d" maxLength={36} disabled={!canManageRoles} /><input type="number" value={newRewardWeight} onChange={(event) => setNewRewardWeight(event.target.value)} min="0" max="100" step="0.1" aria-label="Prize chance" disabled={!canManageRoles} /><button className="admin-button" type="submit" disabled={!canManageRoles}>Add prize</button></div></form>
         <div className="admin-subsection promo-generator"><div className="editor-heading"><div><p className="product-category">PROMO CODES</p><h3>Generate 10% codes</h3></div><button className="admin-button" type="button" onClick={() => onGenerateCodes(1)} disabled={!canManageRoles}>Generate code</button></div><div className="generated-code-list">{generatedCodes.length === 0 ? <p className="empty-state">No manual codes generated.</p> : generatedCodes.slice(0, 30).map((item) => <code key={item.code}>{item.code} · {item.status}</code>)}</div></div>
         <form className="admin-subsection create-account-form" onSubmit={async (event) => { event.preventDefault(); const created = await onCreateAccount(newAccountLogin, newAccountPassword, newAccountRole); if (created) { setNewAccountLogin(''); setNewAccountPassword(''); setNewAccountRole('user'); } }}><div className="editor-heading"><div><p className="product-category">ACCOUNT CONTROL</p><h3>Create account</h3></div><span className="owner-badge">owner only</span></div><div className="create-account-fields"><input value={newAccountLogin} onChange={(event) => setNewAccountLogin(event.target.value)} placeholder="Login" minLength={3} maxLength={32} required disabled={!canManageRoles} /><input type="password" value={newAccountPassword} onChange={(event) => setNewAccountPassword(event.target.value)} placeholder="Temporary password" minLength={6} required disabled={!canManageRoles} /><select value={newAccountRole} onChange={(event) => setNewAccountRole(event.target.value)} disabled={!canManageRoles}><option value="user">user</option><option value="admin">admin</option><option value="owner">owner</option></select><button className="admin-button" type="submit" disabled={!canManageRoles}>Create account</button></div></form>
@@ -561,8 +613,9 @@ export default function App() {
   const [rouletteSpinning, setRouletteSpinning] = useState(false);
   const [rouletteClaim, setRouletteClaim] = useState(null);
   const [customRewards, setCustomRewards] = useState(readCustomRewards);
-  const rewards = useMemo(() => [...rouletteRewards, ...customRewards], [customRewards]);
-  const [adminSettings, setAdminSettings] = useState(() => getAdminSettings([...rouletteRewards, ...readCustomRewards()]));
+  const [rewardConfig, setRewardConfig] = useState(readRewardConfig);
+  const rewards = useMemo(() => getConfiguredRewards(customRewards, rewardConfig), [customRewards, rewardConfig]);
+  const [adminSettings, setAdminSettings] = useState(() => getAdminSettings(getConfiguredRewards(readCustomRewards(), readRewardConfig())));
   const [generatedCodes, setGeneratedCodes] = useState(() => readJson(GENERATED_CODES_KEY, []));
   const [promoStatuses, setPromoStatuses] = useState(() => readJson(PROMO_STATUS_KEY, {}));
   const [tickets, setTickets] = useState(() => readJson(TICKETS_STORAGE_KEY, []));
@@ -616,8 +669,14 @@ export default function App() {
       if (remote.settings?.admin) {
         writeJson(ADMIN_SETTINGS_KEY, remote.settings.admin);
         setAdminSettings((current) => ({ ...current, ...remote.settings.admin }));
+        const nextConfig = {
+          overrides: remote.settings.admin.rewardOverrides || {},
+          removed: Array.isArray(remote.settings.admin.removedRewardIds) ? remote.settings.admin.removedRewardIds : [],
+        };
+        writeJson(REWARD_CONFIG_KEY, nextConfig);
+        setRewardConfig(nextConfig);
       }
-      if (Array.isArray(remote.customRewards) && remote.customRewards.length) {
+      if (Array.isArray(remote.customRewards)) {
         writeJson(CUSTOM_REWARDS_KEY, remote.customRewards);
         setCustomRewards(remote.customRewards);
       }
@@ -694,11 +753,12 @@ export default function App() {
     setAuthBusy(true);
     try {
       const deviceId = getDeviceId();
+      const browserId = getBrowserId();
       const browserFingerprint = getBrowserFingerprint();
       const passwordHash = await hashPassword(password);
       let remoteUser = null;
       try {
-        const remote = await storeApi({ action: authMode, username: cleanUsername, passwordHash, deviceId, browserFingerprint });
+        const remote = await storeApi({ action: authMode, username: cleanUsername, passwordHash, deviceId, browserId, browserFingerprint });
         remoteUser = remote.user;
       } catch (remoteError) {
         if (['USER_EXISTS', 'ACCOUNT_EXISTS', 'INVALID_CREDENTIALS', 'USER_BANNED'].includes(remoteError.code)) return setAuthError(remoteError.message);
@@ -708,9 +768,14 @@ export default function App() {
         if (!remoteUser) {
           if (users[usernameKey]) return setAuthError('This login is already registered.');
           const deviceAccount = localStorage.getItem(DEVICE_ACCOUNT_KEY);
-          const duplicate = Object.values(users).find((user) => user.deviceId === deviceId || user.browserFingerprint === browserFingerprint);
-          if (deviceAccount || duplicate) return setAuthError('This browser/device already has an account. Sign in instead.');
-          remoteUser = { username: cleanUsername, role: 'user', deviceId, browserFingerprint, createdAt: new Date().toISOString() };
+          const hasDeviceAccount = Boolean(deviceAccount && users[deviceAccount]);
+          const publicIp = await getPublicIp();
+          const duplicate = Object.values(users).find((user) => user.deviceId === deviceId
+            || user.browserId === browserId
+            || (user.browserId && user.browserFingerprint === browserFingerprint)
+            || (publicIp && user.ip && user.ip === publicIp));
+          if (hasDeviceAccount || duplicate) return setAuthError('This browser/device already has an account. Sign in instead.');
+          remoteUser = { username: cleanUsername, role: 'user', deviceId, browserId, browserFingerprint, ip: publicIp, createdAt: new Date().toISOString() };
         }
         users[usernameKey] = { ...users[usernameKey], ...remoteUser, passwordHash };
         writeJson(USERS_STORAGE_KEY, users);
@@ -828,12 +893,24 @@ export default function App() {
       return false;
     }
   };
-  const saveAdminSettings = (nextSettings) => {
+  const saveAdminSettings = (nextSettings, labels = {}) => {
+    const nextConfig = { overrides: { ...rewardConfig.overrides }, removed: [...rewardConfig.removed] };
+    if (Object.values(labels).some((label) => !String(label || '').trim())) return showToast('Prize names cannot be empty');
+    Object.entries(labels).forEach(([id, label]) => {
+      const current = rewards.find((reward) => reward.id === id);
+      const cleanLabel = String(label).trim();
+      if (current && cleanLabel !== current.label) nextConfig.overrides[id] = { ...(nextConfig.overrides[id] || {}), label: cleanLabel };
+    });
+    const configuredRewards = getConfiguredRewards(customRewards, nextConfig);
     const normalized = {
       enabled: Boolean(nextSettings.enabled),
-      weights: Object.fromEntries(rewards.map((reward) => [reward.id, Math.max(0, Math.min(100, Number(nextSettings.weights[reward.id]) || 0))])),
+      weights: Object.fromEntries(configuredRewards.map((reward) => [reward.id, Math.max(0, Math.min(100, Number(nextSettings.weights[reward.id]) || 0))])),
+      rewardOverrides: nextConfig.overrides,
+      removedRewardIds: nextConfig.removed,
     };
     writeJson(ADMIN_SETTINGS_KEY, normalized);
+    writeJson(REWARD_CONFIG_KEY, nextConfig);
+    setRewardConfig(nextConfig);
     void storeApi({ action: 'settings', actorUsername: currentUser, actorPasswordHash: currentUserRecord?.passwordHash, value: normalized });
     setAdminSettings(normalized);
     recordEvent('admin_settings', { username: currentUser, settings: normalized });
@@ -849,8 +926,26 @@ export default function App() {
     writeJson(CUSTOM_REWARDS_KEY, nextRewards);
     void storeApi({ action: 'reward', actorUsername: currentUser, actorPasswordHash: currentUserRecord?.passwordHash, reward: newReward });
     setCustomRewards(nextRewards);
-    saveAdminSettings({ ...adminSettings, weights: { ...adminSettings.weights, [newReward.id]: newReward.weight } });
+    const configuredRewards = getConfiguredRewards(nextRewards, rewardConfig);
+    const normalized = { ...adminSettings, weights: Object.fromEntries(configuredRewards.map((reward) => [reward.id, reward.id === newReward.id ? newReward.weight : Math.max(0, Math.min(100, Number(adminSettings.weights[reward.id]) || 0))])), rewardOverrides: rewardConfig.overrides, removedRewardIds: rewardConfig.removed };
+    writeJson(ADMIN_SETTINGS_KEY, normalized);
+    void storeApi({ action: 'settings', actorUsername: currentUser, actorPasswordHash: currentUserRecord?.passwordHash, value: normalized });
+    setAdminSettings(normalized);
     showToast('Prize added');
+  };
+  const deleteReward = (id) => {
+    if (!isOwner || rewards.length <= 1) return showToast(rewards.length <= 1 ? 'Keep at least one prize' : 'Owner access required.');
+    const reward = rewards.find((item) => item.id === id);
+    if (!reward) return;
+    const nextConfig = { overrides: { ...rewardConfig.overrides }, removed: [...new Set([...rewardConfig.removed, id])] };
+    delete nextConfig.overrides[id];
+    const configuredRewards = getConfiguredRewards(customRewards, nextConfig);
+    const normalized = { enabled: adminSettings.enabled, weights: Object.fromEntries(configuredRewards.map((item) => [item.id, Math.max(0, Math.min(100, Number(adminSettings.weights[item.id]) || item.weight))])), rewardOverrides: nextConfig.overrides, removedRewardIds: nextConfig.removed };
+    writeJson(REWARD_CONFIG_KEY, nextConfig); writeJson(ADMIN_SETTINGS_KEY, normalized);
+    setRewardConfig(nextConfig); setAdminSettings(normalized);
+    void storeApi({ action: 'settings', actorUsername: currentUser, actorPasswordHash: currentUserRecord?.passwordHash, value: normalized });
+    recordEvent('reward_deleted', { username: currentUser, rewardId: id, rewardLabel: reward.label });
+    showToast('Prize deleted');
   };
   const generateCodes = (count = 1) => {
     if (!isOwner) return;
@@ -1008,7 +1103,7 @@ export default function App() {
         {activePage === 'shop' && <section className="shop page-enter" aria-labelledby="shop-title"><div className="shop-heading"><p className="eyebrow">OXYGEN COLLECTION</p><h1 id="shop-title">Choose your Oxygen.</h1></div><div className="product-grid">{products.map((product) => <ProductCard key={product.id} product={product} onSelect={openProduct} />)}</div></section>}
         {activePage === 'rewards' && currentUser && <RoulettePage rotation={rouletteRotation} spinning={rouletteSpinning} claimed={!isOwner && isSpinLocked(rouletteClaim)} result={rouletteClaim} onSpin={spinRoulette} settings={adminSettings} rewards={rewards} />}
         {activePage === 'profile' && <ProfilePage user={profileUser} claims={claims} events={events} tickets={tickets} isOwnProfile={Boolean(currentUser && profileName.toLowerCase() === currentUser.toLowerCase())} onAvatarUpload={uploadAvatar} onChangePassword={changePassword} onCreateTicket={createTicket} onSendTicketMessage={sendTicketMessage} />}
-        {activePage === 'admin' && isAdmin && <AdminPage canManageRoles={isOwner} adminName={currentUser} events={events} settings={adminSettings} rewards={rewards} tickets={tickets} onSaveSettings={saveAdminSettings} onResetSettings={resetAdminSettings} onExportAudit={exportAudit} onAddReward={addReward} generatedCodes={generatedCodes} onGenerateCodes={generateCodes} users={users} promoStatuses={promoStatuses} onTogglePromo={togglePromoStatus} onChangeRole={changeRole} onChangeBan={changeBan} onCreateAccount={createAccount} onTicketStatus={updateTicket} onSendTicketMessage={sendTicketMessage} />}
+        {activePage === 'admin' && isAdmin && <AdminPage canManageRoles={isOwner} adminName={currentUser} events={events} settings={adminSettings} rewards={rewards} tickets={tickets} onSaveSettings={saveAdminSettings} onResetSettings={resetAdminSettings} onExportAudit={exportAudit} onAddReward={addReward} onDeleteReward={deleteReward} generatedCodes={generatedCodes} onGenerateCodes={generateCodes} users={users} promoStatuses={promoStatuses} onTogglePromo={togglePromoStatus} onChangeRole={changeRole} onChangeBan={changeBan} onCreateAccount={createAccount} onTicketStatus={updateTicket} onSendTicketMessage={sendTicketMessage} />}
       </main>
       {selectedProduct && <ProductModal product={selectedProduct} onClose={closeProduct} onValidatePromo={validatePromo} />}
       {selectedShowcase && <ShowcaseModal image={selectedShowcase} onClose={() => setSelectedShowcase(null)} />}
