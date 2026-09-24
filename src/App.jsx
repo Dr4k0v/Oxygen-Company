@@ -374,12 +374,14 @@ function LogoutIcon() {
 }
 
 const showcaseImages = [
-  { src: '/showcase/01-angles-overview.png', alt: 'Oxygen anti-aim overview' },
-  { src: '/showcase/02-angles-settings.png', alt: 'Oxygen anti-aim settings' },
-  { src: '/showcase/03-hotkeys.png', alt: 'Oxygen hotkeys' },
-  { src: '/showcase/04-antibruteforce.png', alt: 'Oxygen anti-bruteforce settings' },
-  { src: '/showcase/05-features.png', alt: 'Oxygen features' },
-  { src: '/showcase/06-visuals.png', alt: 'Oxygen visuals' },
+  { src: '/showcase/01-overview.png', alt: 'Oxygen anti-aim overview' },
+  { src: '/showcase/02-cloud-storage.png', alt: 'Oxygen cloud storage' },
+  { src: '/showcase/03-builder.png', alt: 'Oxygen builder settings' },
+  { src: '/showcase/04-hotkeys.png', alt: 'Oxygen hotkeys' },
+  { src: '/showcase/05-anti-bruteforce.png', alt: 'Oxygen anti-bruteforce settings' },
+  { src: '/showcase/06-features.png', alt: 'Oxygen features' },
+  { src: '/showcase/07-visuals.png', alt: 'Oxygen visuals' },
+  { src: '/showcase/08-features-detail.png', alt: 'Oxygen feature settings' },
 ];
 
 function ShowcaseSection({ onSelect }) {
