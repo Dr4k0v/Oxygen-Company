@@ -373,22 +373,29 @@ function LogoutIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10" /></svg>;
 }
 
-const showcaseImages = [
-  { src: '/showcase/01-overview.png', alt: 'Oxygen anti-aim overview' },
-  { src: '/showcase/02-cloud-storage.png', alt: 'Oxygen cloud storage' },
-  { src: '/showcase/03-builder.png', alt: 'Oxygen builder settings' },
-  { src: '/showcase/04-hotkeys.png', alt: 'Oxygen hotkeys' },
-  { src: '/showcase/05-anti-bruteforce.png', alt: 'Oxygen anti-bruteforce settings' },
-  { src: '/showcase/06-features.png', alt: 'Oxygen features' },
-  { src: '/showcase/07-visuals.png', alt: 'Oxygen visuals' },
-  { src: '/showcase/08-features-detail.png', alt: 'Oxygen feature settings' },
+const aetherShowcaseImages = [
+  { src: '/showcase/aether-01-overview.png', alt: 'Aether GS overview' },
+  { src: '/showcase/aether-02-cloud-storage.png', alt: 'Aether GS cloud storage' },
+  { src: '/showcase/aether-03-builder.png', alt: 'Aether GS builder settings' },
+  { src: '/showcase/aether-04-hotkeys.png', alt: 'Aether GS hotkeys' },
+  { src: '/showcase/aether-05-anti-bruteforce.png', alt: 'Aether GS anti-bruteforce settings' },
+  { src: '/showcase/aether-06-features.png', alt: 'Aether GS features' },
+  { src: '/showcase/aether-07-visuals.png', alt: 'Aether GS visuals' },
 ];
 
-function ShowcaseSection({ onSelect }) {
+const arcaneShowcaseImages = [
+  { src: '/showcase/arcane-01-overview.png', alt: 'Arcane GS overview' },
+  { src: '/showcase/arcane-02-anti-aim.png', alt: 'Arcane GS anti-aim settings' },
+  { src: '/showcase/arcane-03-hotkeys.png', alt: 'Arcane GS hotkeys' },
+  { src: '/showcase/arcane-04-features.png', alt: 'Arcane GS features' },
+  { src: '/showcase/arcane-05-visuals.png', alt: 'Arcane GS visuals' },
+];
+
+function ShowcaseSection({ title, images, onSelect, sectionId }) {
   return (
-    <section className="showcase-section" aria-labelledby="showcase-title">
-      <div className="showcase-heading"><h2 id="showcase-title">SHOWCASE</h2></div>
-      <div className="showcase-grid">{showcaseImages.map((image, index) => <button className="showcase-item" type="button" key={image.src} onClick={() => onSelect(image)} aria-label={`Open ${image.alt}`}><img src={image.src} alt={image.alt} loading={index > 1 ? 'lazy' : 'eager'} /></button>)}</div>
+    <section className="showcase-section" aria-labelledby={sectionId}>
+      <div className="showcase-heading"><h2 id={sectionId}>{title}</h2></div>
+      <div className="showcase-grid">{images.map((image, index) => <button className="showcase-item" type="button" key={image.src} onClick={() => onSelect(image)} aria-label={`Open ${image.alt}`}><img src={image.src} alt={image.alt} loading={index > 1 ? 'lazy' : 'eager'} /></button>)}</div>
     </section>
   );
 }
@@ -1101,7 +1108,7 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar"><div className="social-area" aria-label="Social links"><span className="social-title">SOCIAL</span><a href="https://t.me/oxylua" target="_blank" rel="noopener noreferrer" aria-label="Oxygen Telegram"><TelegramIcon /><span>Telegram</span></a><a href="https://discord.gg/dqAKn8vHy" target="_blank" rel="noopener noreferrer" aria-label="Oxygen Discord"><DiscordIcon /><span>Discord</span></a></div><nav className="nav-pill" aria-label="Primary navigation"><button className={`nav-button ${activePage === 'home' ? 'is-active' : ''}`} type="button" onClick={() => navigatePage('home')} aria-label="Home" aria-pressed={activePage === 'home'}><HomeIcon /></button><button className={`nav-button ${activePage === 'shop' ? 'is-active' : ''}`} type="button" onClick={() => navigatePage('shop')} aria-label="Shop" aria-pressed={activePage === 'shop'}><CartIcon /></button>{currentUser && <button className={`nav-button ${activePage === 'rewards' ? 'is-active' : ''}`} type="button" onClick={() => navigatePage('rewards')} aria-label="Rewards roulette" aria-pressed={activePage === 'rewards'}><GiftIcon /></button>}{isAdmin && <button className={`nav-button ${activePage === 'admin' ? 'is-active' : ''}`} type="button" onClick={() => navigatePage('admin')} aria-label="Admin panel" aria-pressed={activePage === 'admin'}><AdminIcon /></button>}</nav><div className="account-area">{currentUser ? <><button className="account-button profile-button" type="button" onClick={() => navigateProfile()} aria-label={`Open ${currentUser} profile`}><img src={currentUserRecord?.avatar || '/default-avatar.png'} alt="" /><span>{currentUser}</span></button><button className="logout-button" type="button" onClick={logout} aria-label="Log out"><LogoutIcon /><span>Log out</span></button></> : <button className="account-button" type="button" onClick={(event) => openAuth('login', event)} aria-label="Open account sign in"><UserIcon /><span>Sign in</span></button>}</div></header>
       <main>
-        {activePage === 'home' && <><section className="hero page-enter" aria-labelledby="greeting"><p className="eyebrow">OXYGEN / DIGITAL STORE</p><h1 id="greeting">{getGreeting()}</h1><p>Welcome to Oxygen | go fuck this game dominate with Oxygen right now!</p><button className="explore-button" type="button" onClick={() => navigatePage('shop')}>Explore products</button></section><ShowcaseSection onSelect={setSelectedShowcase} /></>}
+        {activePage === 'home' && <><section className="hero page-enter" aria-labelledby="greeting"><p className="eyebrow">OXYGEN / DIGITAL STORE</p><h1 id="greeting">{getGreeting()}</h1><p>Welcome to Oxygen | go fuck this game dominate with Oxygen right now!</p><button className="explore-button" type="button" onClick={() => navigatePage('shop')}>Explore products</button></section><div className="showcase-collection" aria-labelledby="showcase-title"><div className="showcase-heading"><h2 id="showcase-title">SHOWCASE</h2></div><ShowcaseSection title="Aether GS" images={aetherShowcaseImages} sectionId="aether-showcase-title" onSelect={setSelectedShowcase} /><ShowcaseSection title="Arcane GS" images={arcaneShowcaseImages} sectionId="arcane-showcase-title" onSelect={setSelectedShowcase} /></div></>}
         {activePage === 'shop' && <section className="shop page-enter" aria-labelledby="shop-title"><div className="shop-heading"><p className="eyebrow">OXYGEN COLLECTION</p><h1 id="shop-title">Choose your Oxygen.</h1></div><div className="product-grid">{products.map((product) => <ProductCard key={product.id} product={product} onSelect={openProduct} />)}</div></section>}
         {activePage === 'rewards' && currentUser && <RoulettePage rotation={rouletteRotation} spinning={rouletteSpinning} claimed={!isOwner && isSpinLocked(rouletteClaim)} result={rouletteClaim} onSpin={spinRoulette} settings={adminSettings} rewards={rewards} />}
         {activePage === 'profile' && <ProfilePage user={profileUser} claims={claims} events={events} tickets={tickets} isOwnProfile={Boolean(currentUser && profileName.toLowerCase() === currentUser.toLowerCase())} onAvatarUpload={uploadAvatar} onChangePassword={changePassword} onCreateTicket={createTicket} onSendTicketMessage={sendTicketMessage} />}
