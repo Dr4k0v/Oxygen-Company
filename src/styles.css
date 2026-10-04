@@ -297,22 +297,18 @@ h1, h2, p { margin-top: 0; }
 .roulette-layout { display: grid; grid-template-columns: minmax(0, 1.06fr) minmax(280px, .94fr); gap: 20px; align-items: stretch; }
 .roulette-card, .result-card, .owner-panel { border: 1px solid rgba(255,255,255,.16); border-radius: 24px; background: linear-gradient(145deg, rgba(255,255,255,.055), rgba(0,0,0,.16)); box-shadow: inset 0 1px rgba(255,255,255,.08), 0 18px 40px rgba(0,0,0,.22); }
 .roulette-card { display: flex; min-height: 520px; flex-direction: column; align-items: center; justify-content: center; padding: 32px; }
-.wheel-stage { position: relative; width: min(100%, 470px); aspect-ratio: 1; display: grid; place-items: center; cursor: pointer; outline: none; }
-.wheel-stage:focus-visible { border-radius: 50%; box-shadow: 0 0 0 3px rgba(255,255,255,.24); }
-.wheel-pointer { position: absolute; z-index: 3; top: -4px; left: 50%; width: 0; height: 0; border-right: 12px solid transparent; border-left: 12px solid transparent; border-top: 21px solid #ededed; filter: drop-shadow(0 3px 5px rgba(0,0,0,.5)); transform: translateX(-50%); }
-.roulette-wheel { position: relative; width: 88%; height: 88%; border: 10px solid rgba(255,255,255,.13); border-radius: 50%; background: #222; box-shadow: 0 0 0 1px rgba(255,255,255,.24), 0 18px 32px rgba(0,0,0,.48), inset 0 0 32px rgba(0,0,0,.48); transform: rotate(var(--wheel-rotation, 0deg)) translateZ(0); transition: transform 1.9s cubic-bezier(.16,.78,.18,1); will-change: transform; backface-visibility: hidden; }
-.roulette-wheel::after { position: absolute; inset: 11%; border: 1px solid rgba(255,255,255,.22); border-radius: 50%; content: ""; }
-.roulette-wheel.is-spinning { filter: brightness(1.08); animation: roulette-spin 1.9s cubic-bezier(.16,.78,.18,1) both; }
-.wheel-center { position: absolute; z-index: 2; top: 50%; left: 50%; display: grid; width: 78px; height: 78px; place-items: center; border: 1px solid rgba(255,255,255,.32); border-radius: 50%; color: #e6e6e6; background: #171717; box-shadow: 0 5px 18px rgba(0,0,0,.45), inset 0 1px rgba(255,255,255,.14); font-size: 10px; font-weight: 700; letter-spacing: 1.5px; transform: translate(-50%, -50%); }
-.wheel-label { position: absolute; z-index: 1; top: 50%; left: 50%; width: 78px; color: #dedede; font-size: 11px; font-weight: 700; text-align: center; transform-origin: 0 0; }
-.wheel-label-0 { transform: translate(-50%, -50%) rotate(0deg) translateY(-130px) rotate(0deg); }
-.wheel-label-1 { transform: translate(-50%, -50%) rotate(45deg) translateY(-130px) rotate(-45deg); }
-.wheel-label-2 { transform: translate(-50%, -50%) rotate(90deg) translateY(-130px) rotate(-90deg); }
-.wheel-label-3 { transform: translate(-50%, -50%) rotate(135deg) translateY(-130px) rotate(-135deg); }
-.wheel-label-4 { transform: translate(-50%, -50%) rotate(180deg) translateY(-130px) rotate(-180deg); }
-.wheel-label-5 { transform: translate(-50%, -50%) rotate(225deg) translateY(-130px) rotate(-225deg); }
-.wheel-label-6 { transform: translate(-50%, -50%) rotate(270deg) translateY(-130px) rotate(-270deg); }
-.wheel-label-7 { transform: translate(-50%, -50%) rotate(315deg) translateY(-130px) rotate(-315deg); }
+.roulette-stage { --roulette-item-width: clamp(150px, 20vw, 220px); --roulette-gap: 12px; position: relative; width: min(100%, 760px); padding: 30px 0 22px; cursor: pointer; outline: none; }
+.roulette-stage:focus-visible { border-radius: 18px; box-shadow: 0 0 0 3px rgba(255,255,255,.24); }
+.roulette-marker { position: absolute; z-index: 3; top: 4px; left: 50%; width: 0; height: 0; border-right: 12px solid transparent; border-left: 12px solid transparent; border-top: 20px solid #ededed; filter: drop-shadow(0 3px 5px rgba(0,0,0,.5)); transform: translateX(-50%); }
+.roulette-track-window { position: relative; overflow: hidden; width: 100%; padding: 24px 0; border: 1px solid rgba(255,255,255,.16); border-radius: 18px; background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.2)); box-shadow: inset 0 1px rgba(255,255,255,.1), inset 0 -18px 30px rgba(0,0,0,.18); }
+.roulette-track-window::before, .roulette-track-window::after { position: absolute; z-index: 2; top: 0; bottom: 0; width: 16%; pointer-events: none; content: ""; }
+.roulette-track-window::before { left: 0; background: linear-gradient(90deg, rgba(12,12,12,.7), transparent); }
+.roulette-track-window::after { right: 0; background: linear-gradient(270deg, rgba(12,12,12,.7), transparent); }
+.roulette-track { display: flex; gap: var(--roulette-gap); width: max-content; padding: 0 calc(50% - (var(--roulette-item-width) / 2)); transform: translate3d(calc(-1 * var(--roulette-index, 0) * (var(--roulette-item-width) + var(--roulette-gap))), 0, 0); will-change: transform; }
+.roulette-tile { display: flex; width: var(--roulette-item-width); min-width: var(--roulette-item-width); height: 128px; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 16px; border: 1px solid rgba(255,255,255,.2); border-radius: 14px; color: #eee; background: linear-gradient(145deg, rgba(255,255,255,.15), rgba(255,255,255,.04)); box-shadow: 0 10px 24px rgba(0,0,0,.24), inset 0 1px rgba(255,255,255,.1); text-align: center; }
+.roulette-tile.is-empty { color: #9a9a9a; background: linear-gradient(145deg, rgba(255,255,255,.075), rgba(0,0,0,.2)); }
+.roulette-tile strong { max-width: 100%; overflow: hidden; color: inherit; font-size: 15px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.roulette-tile span { max-width: 100%; overflow: hidden; color: #999; font-size: 11px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
 .spin-button { width: min(100%, 320px); margin-top: 18px; }
 .roulette-note { margin: 15px 0 0; color: #777; font-size: 12px; text-align: center; }
 .result-card { min-height: 520px; padding: 42px 36px; }
@@ -496,15 +492,8 @@ h1, h2, p { margin-top: 0; }
   .rewards-heading h1 { font-size: clamp(34px, 11vw, 50px); }
   .roulette-card { padding: 24px 18px; border-radius: 20px; }
   .result-card { padding: 30px 24px; border-radius: 20px; }
-  .wheel-label { font-size: 10px; }
-  .wheel-label-0 { transform: translate(-50%, -50%) rotate(0deg) translateY(-103px) rotate(0deg); }
-  .wheel-label-1 { transform: translate(-50%, -50%) rotate(45deg) translateY(-103px) rotate(-45deg); }
-  .wheel-label-2 { transform: translate(-50%, -50%) rotate(90deg) translateY(-103px) rotate(-90deg); }
-  .wheel-label-3 { transform: translate(-50%, -50%) rotate(135deg) translateY(-103px) rotate(-135deg); }
-  .wheel-label-4 { transform: translate(-50%, -50%) rotate(180deg) translateY(-103px) rotate(-180deg); }
-  .wheel-label-5 { transform: translate(-50%, -50%) rotate(225deg) translateY(-103px) rotate(-225deg); }
-  .wheel-label-6 { transform: translate(-50%, -50%) rotate(270deg) translateY(-103px) rotate(-270deg); }
-  .wheel-label-7 { transform: translate(-50%, -50%) rotate(315deg) translateY(-103px) rotate(-315deg); }
+  .roulette-stage { --roulette-item-width: min(70vw, 220px); width: 100%; padding-top: 30px; }
+  .roulette-tile { height: 116px; padding-inline: 12px; }
   .owner-panel { padding: 22px 18px; }
   .owner-stats { gap: 7px; }
   .owner-stats > div { padding: 12px 10px; }
@@ -517,7 +506,6 @@ h1, h2, p { margin-top: 0; }
   .user-row select { grid-column: 1 / 2; width: 100%; }
   .user-row .ban-button { grid-column: 2; width: 100%; }
   .event-detail { flex-wrap: wrap; }
-  .wheel-stage { width: min(100%, 390px); }
   .weight-row { grid-template-columns: minmax(0, 1fr) 68px 14px auto; gap: 6px; }
   .remove-reward-button { padding: 0 6px; }
   .add-reward-fields { grid-template-columns: 1fr 68px; }

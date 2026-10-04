@@ -316,6 +316,16 @@ function getWheelGradient(rewards) {
   return `conic-gradient(from -${slice / 2}deg, ${stops.join(', ')})`;
 }
 
+function pickRoulettePreviewReward(rewards) {
+  const total = rewards.reduce((sum, reward) => sum + Math.max(0, Number(reward.weight) || 0), 0);
+  if (!total) return rewards[Math.floor(Math.random() * rewards.length)];
+  let cursor = Math.random() * total;
+  return rewards.find((reward) => {
+    cursor -= Math.max(0, Number(reward.weight) || 0);
+    return cursor <= 0;
+  }) || rewards[rewards.length - 1];
+}
+
 function isSpinLocked(claim) {
   return Boolean(claim?.at && Date.now() < new Date(claim.at).getTime() + SPIN_COOLDOWN_MS);
 }
@@ -539,14 +549,15 @@ function ProfilePage({ user, claims, events, tickets = [], isOwnProfile, onAvata
   );
 }
 
-function RoulettePage({ rotation, spinning, claimed, result, onSpin, settings, rewards }) {
+function RoulettePage({ position, sequence, duration, spinning, claimed, result, onSpin, settings, rewards }) {
+  const displaySequence = sequence.length ? sequence : rewards;
   return (
     <section className="rewards page-enter" aria-labelledby="rewards-title">
       <div className="rewards-heading"><p className="eyebrow">OXYGEN REWARDS</p><h1 id="rewards-title">A little something for you.</h1><p>One spin every day per browser/device. Good luck.</p></div>
       <div className="roulette-layout">
         <div className="roulette-card">
-          <div className="wheel-stage" role="button" tabIndex={claimed || spinning ? -1 : 0} aria-label="Spin Oxygen rewards roulette" onPointerDown={(event) => { if (event.button === 0) onSpin(); }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSpin(); } }}><span className="wheel-pointer" aria-hidden="true" /><div className={`roulette-wheel ${spinning ? 'is-spinning' : ''}`} style={{ '--wheel-rotation': `${rotation}deg`, background: getWheelGradient(rewards) }}><div className="wheel-center">OXYGEN</div>{rewards.map((reward, index) => { const angle = (360 / rewards.length) * index; return <span key={reward.id} className="wheel-label" style={{ transform: `translate(-50%, -50%) rotate(${angle}deg) translateY(-130px) rotate(${-angle}deg)` }}>{reward.shortLabel}</span>; })}</div></div>
-          <button className="buy-button spin-button" type="button" onClick={onSpin} disabled={spinning || claimed || !settings.enabled}>{!settings.enabled ? 'Roulette paused' : spinning ? 'Spinning...' : claimed ? `Next spin in ${formatCooldown(result)}` : 'Spin the wheel'}</button>
+          <div className="roulette-stage" role="button" tabIndex={claimed || spinning ? -1 : 0} aria-label="Spin Oxygen rewards roulette" onPointerDown={(event) => { if (event.button === 0) onSpin(); }} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSpin(); } }}><span className="roulette-marker" aria-hidden="true" /><div className="roulette-track-window"><div className="roulette-track" style={{ '--roulette-index': position, '--roulette-duration': `${duration}ms`, transition: spinning ? `transform ${duration}ms cubic-bezier(.08,.74,.14,1)` : 'none' }}>{displaySequence.map((reward, index) => <article className={`roulette-tile ${reward.id === 'nothing' ? 'is-empty' : ''}`} key={`${reward.id}-${index}`}><strong>{reward.shortLabel}</strong><span>{reward.label}</span></article>)}</div></div></div>
+          <button className="buy-button spin-button" type="button" onClick={onSpin} disabled={spinning || claimed || !settings.enabled}>{!settings.enabled ? 'Roulette paused' : spinning ? 'Rolling...' : claimed ? `Next spin in ${formatCooldown(result)}` : 'Spin the roulette'}</button>
           <p className="roulette-note">{claimed ? `Next attempt: ${getNextSpinAt(result)?.toLocaleString()}` : 'The result is saved to this browser and account.'}</p>
         </div>
         <div className="result-card" aria-live="polite"><p className="product-category">YOUR DROP</p>{!result ? <><h2>Ready?</h2><p>Tap the button to reveal your Oxygen reward.</p></> : <><h2>{result.rewardLabel}</h2>{result.promoCode ? <><p className="promo-code">{result.promoCode}</p><p>Send this promo code in a ticket on our Discord channel to claim your 10% discount. Valid for 7 days.</p><p className="promo-expiry">Expires: {new Date(result.expiresAt || getPromoExpiry(result.at)).toLocaleString()}</p><a className="discord-button" href={DISCORD_INVITE} target="_blank" rel="noopener noreferrer">Open Discord ticket</a></> : <p>{result.rewardId === 'nothing' ? 'Nothing this time — thanks for playing.' : 'Your reward is reserved for this account.'}</p>}</>}</div>
@@ -618,7 +629,9 @@ export default function App() {
   const [authMode, setAuthMode] = useState(null);
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
-  const [rouletteRotation, setRouletteRotation] = useState(0);
+  const [roulettePosition, setRoulettePosition] = useState(0);
+  const [rouletteSequence, setRouletteSequence] = useState([]);
+  const [rouletteDuration, setRouletteDuration] = useState(6500);
   const [rouletteSpinning, setRouletteSpinning] = useState(false);
   const [rouletteClaim, setRouletteClaim] = useState(null);
   const [customRewards, setCustomRewards] = useState(readCustomRewards);
@@ -1082,14 +1095,18 @@ export default function App() {
       return;
     }
     const selected = rewards.find((reward) => reward.id === claim.rewardId) || rewards[0];
-    const slice = 360 / rewards.length;
-    const selectedIndex = rewards.findIndex((reward) => reward.id === selected.id);
-    setRouletteSpinning(true);
-    const randomInsideLot = (Math.random() - 0.5) * slice * 0.78;
-    setRouletteRotation((rotation) => {
-      const target = 360 - selectedIndex * slice + randomInsideLot;
-      const correction = ((target - (rotation % 360)) + 360) % 360;
-      return rotation + 2160 + correction;
+    const laps = 3 + Math.floor(Math.random() * 4);
+    const fillerCount = laps * rewards.length + Math.floor(Math.random() * rewards.length);
+    const sequence = Array.from({ length: fillerCount }, () => pickRoulettePreviewReward(rewards));
+    sequence.push(selected);
+    const duration = 4000 + Math.floor(Math.random() * 5501);
+    setRouletteDuration(duration);
+    setRouletteSequence(sequence);
+    setRoulettePosition(0);
+    setRouletteSpinning(false);
+    window.requestAnimationFrame(() => {
+      setRouletteSpinning(true);
+      setRoulettePosition(sequence.length - 1);
     });
     window.setTimeout(() => {
       const claims = readJson(CLAIMS_STORAGE_KEY, {});
@@ -1101,7 +1118,7 @@ export default function App() {
       setRouletteSpinning(false);
       spinRequestRef.current = false;
       setEventsVersion((version) => version + 1);
-    }, 1900);
+    }, duration + 120);
   };
 
   return (
@@ -1110,7 +1127,7 @@ export default function App() {
       <main>
         {activePage === 'home' && <><section className="hero page-enter" aria-labelledby="greeting"><p className="eyebrow">OXYGEN / DIGITAL STORE</p><h1 id="greeting">{getGreeting()}</h1><p>Welcome to Oxygen | go fuck this game dominate with Oxygen right now!</p><button className="explore-button" type="button" onClick={() => navigatePage('shop')}>Explore products</button></section><div className="showcase-collection" aria-labelledby="showcase-title"><div className="showcase-heading"><h2 id="showcase-title">SHOWCASE</h2></div><ShowcaseSection title="Aether GS" images={aetherShowcaseImages} sectionId="aether-showcase-title" onSelect={setSelectedShowcase} /><ShowcaseSection title="Arcane GS" images={arcaneShowcaseImages} sectionId="arcane-showcase-title" onSelect={setSelectedShowcase} /></div></>}
         {activePage === 'shop' && <section className="shop page-enter" aria-labelledby="shop-title"><div className="shop-heading"><p className="eyebrow">OXYGEN COLLECTION</p><h1 id="shop-title">Choose your Oxygen.</h1></div><div className="product-grid">{products.map((product) => <ProductCard key={product.id} product={product} onSelect={openProduct} />)}</div></section>}
-        {activePage === 'rewards' && currentUser && <RoulettePage rotation={rouletteRotation} spinning={rouletteSpinning} claimed={!isOwner && isSpinLocked(rouletteClaim)} result={rouletteClaim} onSpin={spinRoulette} settings={adminSettings} rewards={rewards} />}
+        {activePage === 'rewards' && currentUser && <RoulettePage position={roulettePosition} sequence={rouletteSequence} duration={rouletteDuration} spinning={rouletteSpinning} claimed={!isOwner && isSpinLocked(rouletteClaim)} result={rouletteClaim} onSpin={spinRoulette} settings={adminSettings} rewards={rewards} />}
         {activePage === 'profile' && <ProfilePage user={profileUser} claims={claims} events={events} tickets={tickets} isOwnProfile={Boolean(currentUser && profileName.toLowerCase() === currentUser.toLowerCase())} onAvatarUpload={uploadAvatar} onChangePassword={changePassword} onCreateTicket={createTicket} onSendTicketMessage={sendTicketMessage} />}
         {activePage === 'admin' && isAdmin && <AdminPage canManageRoles={isOwner} adminName={currentUser} events={events} settings={adminSettings} rewards={rewards} tickets={tickets} onSaveSettings={saveAdminSettings} onResetSettings={resetAdminSettings} onExportAudit={exportAudit} onAddReward={addReward} onDeleteReward={deleteReward} generatedCodes={generatedCodes} onGenerateCodes={generateCodes} users={users} promoStatuses={promoStatuses} onTogglePromo={togglePromoStatus} onChangeRole={changeRole} onChangeBan={changeBan} onCreateAccount={createAccount} onTicketStatus={updateTicket} onSendTicketMessage={sendTicketMessage} />}
       </main>
