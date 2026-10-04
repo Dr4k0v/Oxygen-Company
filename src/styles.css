@@ -290,17 +290,17 @@ h1, h2, p { margin-top: 0; }
 .auth-demo { margin: 10px auto 0; padding: 4px; border: 0; color: #777; background: transparent; cursor: pointer; font-size: 11px; }
 .auth-demo:hover { color: #cfcfcf; }
 
-.rewards { width: min(1120px, 100%); margin: 0 auto; padding: 156px 36px 84px; }
+.rewards { width: min(1120px, 100%); min-width: 0; margin: 0 auto; padding: 156px 36px 84px; overflow-x: hidden; }
 .rewards-heading { margin-bottom: 34px; }
 .rewards-heading h1 { margin: 0 0 12px; color: #d6d6d6; font-size: clamp(38px, 5vw, 62px); line-height: 1.04; }
 .rewards-heading > p:last-child { margin: 0; color: #777; font-size: 16px; }
-.roulette-layout { display: grid; grid-template-columns: minmax(0, 1.06fr) minmax(280px, .94fr); gap: 20px; align-items: stretch; }
+.roulette-layout { display: grid; min-width: 0; grid-template-columns: minmax(0, 1.06fr) minmax(280px, .94fr); gap: 20px; align-items: stretch; }
 .roulette-card, .result-card, .owner-panel { border: 1px solid rgba(255,255,255,.16); border-radius: 24px; background: linear-gradient(145deg, rgba(255,255,255,.055), rgba(0,0,0,.16)); box-shadow: inset 0 1px rgba(255,255,255,.08), 0 18px 40px rgba(0,0,0,.22); }
-.roulette-card { display: flex; min-height: 520px; flex-direction: column; align-items: center; justify-content: center; padding: 32px; }
-.roulette-stage { --roulette-item-width: clamp(150px, 20vw, 220px); --roulette-gap: 12px; position: relative; width: min(100%, 760px); padding: 30px 0 22px; cursor: pointer; outline: none; }
+.roulette-card { display: flex; min-width: 0; min-height: 520px; flex-direction: column; align-items: center; justify-content: center; padding: 32px; }
+.roulette-stage { --roulette-item-width: clamp(150px, 20vw, 220px); --roulette-gap: 12px; position: relative; width: min(100%, 760px); min-width: 0; max-width: 100%; padding: 30px 0 22px; cursor: pointer; outline: none; }
 .roulette-stage:focus-visible { border-radius: 18px; box-shadow: 0 0 0 3px rgba(255,255,255,.24); }
 .roulette-marker { position: absolute; z-index: 3; top: 4px; left: 50%; width: 0; height: 0; border-right: 12px solid transparent; border-left: 12px solid transparent; border-top: 20px solid #ededed; filter: drop-shadow(0 3px 5px rgba(0,0,0,.5)); transform: translateX(-50%); }
-.roulette-track-window { position: relative; overflow: hidden; width: 100%; padding: 24px 0; border: 1px solid rgba(255,255,255,.16); border-radius: 18px; background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.2)); box-shadow: inset 0 1px rgba(255,255,255,.1), inset 0 -18px 30px rgba(0,0,0,.18); }
+.roulette-track-window { position: relative; overflow: hidden; width: 100%; min-width: 0; max-width: 100%; padding: 24px 0; border: 1px solid rgba(255,255,255,.16); border-radius: 18px; background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.2)); box-shadow: inset 0 1px rgba(255,255,255,.1), inset 0 -18px 30px rgba(0,0,0,.18); }
 .roulette-track-window::before, .roulette-track-window::after { position: absolute; z-index: 2; top: 0; bottom: 0; width: 16%; pointer-events: none; content: ""; }
 .roulette-track-window::before { left: 0; background: linear-gradient(90deg, rgba(12,12,12,.7), transparent); }
 .roulette-track-window::after { right: 0; background: linear-gradient(270deg, rgba(12,12,12,.7), transparent); }
